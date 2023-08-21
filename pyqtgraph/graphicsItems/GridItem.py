@@ -4,7 +4,7 @@ from .. import functions as fn
 from .. import getConfigOption
 from ..Point import Point
 from ..Qt import QtCore, QtGui
-from .UIGraphicsItem import UIGraphicsItem
+from .UIGraphicsItem import *
 
 __all__ = ['GridItem']
 class GridItem(UIGraphicsItem):
@@ -163,7 +163,11 @@ class GridItem(UIGraphicsItem):
 
                 bx = (ax+1) % 2
                 for x in range(0, int(nl[ax])):
-                    linePen.setCosmetic(True)
+                    linePen.setCosmetic(False)
+                    if ax == 0:
+                        linePen.setWidthF(self.pixelWidth())
+                    else:
+                        linePen.setWidthF(self.pixelHeight())
                     p.setPen(linePen)
                     p1 = np.array([0.,0.])
                     p2 = np.array([0.,0.])

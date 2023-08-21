@@ -6,19 +6,18 @@ from .Dock import Dock
 from .DockDrop import DockDrop
 
 
-class DockArea(Container, QtWidgets.QWidget):
+class DockArea(Container, QtWidgets.QWidget, DockDrop):
     def __init__(self, parent=None, temporary=False, home=None):
         Container.__init__(self, self)
         QtWidgets.QWidget.__init__(self, parent=parent)
-        self.dockdrop = DockDrop(self)
-        self.dockdrop.removeAllowedArea('center')
+        DockDrop.__init__(self, allowedAreas=['left', 'right', 'top', 'bottom'])
         self.layout = QtWidgets.QVBoxLayout()
         self.layout.setContentsMargins(0,0,0,0)
         self.layout.setSpacing(0)
         self.setLayout(self.layout)
         self.docks = weakref.WeakValueDictionary()
         self.topContainer = None
-        self.dockdrop.raiseOverlay()
+        self.raiseOverlay()
         self.temporary = temporary
         self.tempAreas = []
         self.home = home
@@ -143,7 +142,7 @@ class DockArea(Container, QtWidgets.QWidget):
         #print "Add container:", new, " -> ", container
         if obj is not None:
             new.insert(obj)
-        self.dockdrop.raiseOverlay()
+        self.raiseOverlay()
         return new
     
     def insert(self, new, pos=None, neighbor=None):
@@ -154,7 +153,7 @@ class DockArea(Container, QtWidgets.QWidget):
         self.layout.addWidget(new)
         new.containerChanged(self)
         self.topContainer = new
-        self.dockdrop.raiseOverlay()
+        self.raiseOverlay()
         
     def count(self):
         if self.topContainer is None:
@@ -162,7 +161,7 @@ class DockArea(Container, QtWidgets.QWidget):
         return 1
         
     def resizeEvent(self, ev):
-        self.dockdrop.resizeOverlay(self.size())
+        self.resizeOverlay(self.size())
         
     def addTempArea(self):
         if self.home is None:
@@ -262,6 +261,7 @@ class DockArea(Container, QtWidgets.QWidget):
 
     def buildFromState(self, state, docks, root, depth=0, missing='error'):
         typ, contents, state = state
+        pfx = "  " * depth
         if typ == 'dock':
             try:
                 obj = docks[contents]
@@ -280,6 +280,7 @@ class DockArea(Container, QtWidgets.QWidget):
             obj = self.makeContainer(typ)
             
         root.insert(obj, 'after')
+        #print pfx+"Add:", obj, " -> ", root
         
         if typ != 'dock':
             for o in contents:
@@ -327,17 +328,19 @@ class DockArea(Container, QtWidgets.QWidget):
         for dock in docks.values():
             dock.close()
             
+    ## PySide bug: We need to explicitly redefine these methods
+    ## or else drag/drop events will not be delivered.
     def dragEnterEvent(self, *args):
-        self.dockdrop.dragEnterEvent(*args)
+        DockDrop.dragEnterEvent(self, *args)
 
     def dragMoveEvent(self, *args):
-        self.dockdrop.dragMoveEvent(*args)
+        DockDrop.dragMoveEvent(self, *args)
 
     def dragLeaveEvent(self, *args):
-        self.dockdrop.dragLeaveEvent(*args)
+        DockDrop.dragLeaveEvent(self, *args)
 
     def dropEvent(self, *args):
-        self.dockdrop.dropEvent(*args)
+        DockDrop.dropEvent(self, *args)
 
     def printState(self, state=None, name='Main'):
         # for debugging

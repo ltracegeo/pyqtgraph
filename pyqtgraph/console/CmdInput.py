@@ -7,18 +7,9 @@ class CmdInput(QtWidgets.QLineEdit):
     
     def __init__(self, parent):
         QtWidgets.QLineEdit.__init__(self, parent)
-        self.ps1 = ">>> "
-        self.ps2 = "... "
         self.history = [""]
         self.ptr = 0
-        self.setMultiline(False)
     
-    def setMultiline(self, ml):
-        if ml:
-            self.setPlaceholderText(self.ps2)
-        else:
-            self.setPlaceholderText(self.ps1)
-
     def keyPressEvent(self, ev):
         if ev.key() == QtCore.Qt.Key.Key_Up:
             if self.ptr < len(self.history) - 1:
@@ -30,7 +21,7 @@ class CmdInput(QtWidgets.QLineEdit):
                 self.setHistory(self.ptr-1)
                 ev.accept()
                 return
-        elif ev.key() in (QtCore.Qt.Key.Key_Return, QtCore.Qt.Key.Key_Enter):
+        elif ev.key() == QtCore.Qt.Key.Key_Return:
             self.execCmd()
         else:
             super().keyPressEvent(ev)

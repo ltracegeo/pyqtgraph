@@ -1,5 +1,6 @@
 from OpenGL.GL import *  # noqa
 import OpenGL.GL.framebufferobjects as glfbo  # noqa
+import warnings
 from math import cos, radians, sin, tan
 
 import numpy as np
@@ -9,18 +10,31 @@ from .. import functions as fn
 from .. import getConfigOption
 from ..Qt import QtCore, QtGui, QtWidgets
 
-class GLViewMixin:
-    def __init__(self, *args, rotationMethod='euler', **kwargs):
-        """
-        Mixin class providing functionality for GLViewWidget
+##Vector = QtGui.QVector3D
+
+
+class GLViewWidget(QtWidgets.QOpenGLWidget):
+    
+    def __init__(self, parent=None, devicePixelRatio=None, rotationMethod='euler'):
+        """    
+        Basic widget for displaying 3D data
+          - Rotation/scale controls
+          - Axis/grid display
+          - Export options
 
         ================ ==============================================================
         **Arguments:**
-        rotationMethod   (str): Mechanism to drive the rotation method, options are
+        parent           (QObject, optional): Parent QObject. Defaults to None.
+        devicePixelRatio No longer in use. High-DPI displays should automatically
+                         detect the correct resolution.
+        rotationMethod   (str): Mechanimsm to drive the rotation method, options are 
                          'euler' and 'quaternion'. Defaults to 'euler'.
         ================ ==============================================================
         """
-        super().__init__(*args, **kwargs)
+
+        QtWidgets.QOpenGLWidget.__init__(self, parent)
+        
+        self.setFocusPolicy(QtCore.Qt.FocusPolicy.ClickFocus)
 
         if rotationMethod not in ["euler", "quaternion"]:
             raise ValueError("Rotation method should be either 'euler' or 'quaternion'")
@@ -45,6 +59,21 @@ class GLViewMixin:
         self.keyTimer = QtCore.QTimer()
         self.keyTimer.timeout.connect(self.evalKeyState)
 
+    def _updateScreen(self, screen):
+        self._updatePixelRatio()
+        if screen is not None:
+            screen.physicalDotsPerInchChanged.connect(self._updatePixelRatio)
+            screen.logicalDotsPerInchChanged.connect(self._updatePixelRatio)
+    
+    def _updatePixelRatio(self):
+        event = QtGui.QResizeEvent(self.size(), self.size())
+        self.resizeEvent(event)
+    
+    def showEvent(self, event):
+        window = self.window().windowHandle()
+        window.screenChanged.connect(self._updateScreen)
+        self._updateScreen(window.screen())
+        
     def deviceWidth(self):
         dpr = self.devicePixelRatioF()
         return int(self.width() * dpr)
@@ -348,7 +377,18 @@ class GLViewMixin:
         
         Distances are scaled roughly such that a value of 1.0 moves
         by one pixel on screen.
+        
+        Prior to version 0.11, *relative* was expected to be either True (x-aligned) or
+        False (global). These values are deprecated but still recognized.
         """
+        # for backward compatibility:
+        if isinstance(relative, bool):
+            warnings.warn(
+                "'relative' as a boolean is deprecated, and will not be recognized in 0.13. "
+                "Acceptable values are 'global', 'view', or 'view-upright'",
+                DeprecationWarning, stacklevel=2
+            )    
+        relative = {True: "view-upright", False: "global"}.get(relative, relative)
         if relative == 'global':
             self.opts['center'] += QtGui.QVector3D(dx, dy, dz)
         elif relative == 'view-upright':
@@ -404,15 +444,13 @@ class GLViewMixin:
             dist = (pos-cam).length()
         xDist = dist * 2. * tan(0.5 * radians(self.opts['fov']))
         return xDist / self.width()
-
+        
     def mousePressEvent(self, ev):
         lpos = ev.position() if hasattr(ev, 'position') else ev.localPos()
         self.mousePos = lpos
-
+        
     def mouseMoveEvent(self, ev):
         lpos = ev.position() if hasattr(ev, 'position') else ev.localPos()
-        if not hasattr(self, 'mousePos'):
-            self.mousePos = lpos
         diff = lpos - self.mousePos
         self.mousePos = lpos
         
@@ -559,24 +597,3 @@ class GLViewMixin:
                 glDeleteRenderbuffers(1, [depth_buf])
 
         return output
-
-
-class GLViewWidget(GLViewMixin, QtWidgets.QOpenGLWidget):
-    def __init__(self, *args, devicePixelRatio=None, **kwargs):
-        """
-        Basic widget for displaying 3D data
-          - Rotation/scale controls
-          - Axis/grid display
-          - Export options
-
-        ================ ==============================================================
-        **Arguments:**
-        parent           (QObject, optional): Parent QObject. Defaults to None.
-        devicePixelRatio No longer in use. High-DPI displays should automatically
-                         detect the correct resolution.
-        rotationMethod   (str): Mechanism to drive the rotation method, options are
-                         'euler' and 'quaternion'. Defaults to 'euler'.
-        ================ ==============================================================
-        """
-        super().__init__(*args, **kwargs)
-        self.setFocusPolicy(QtCore.Qt.FocusPolicy.ClickFocus)

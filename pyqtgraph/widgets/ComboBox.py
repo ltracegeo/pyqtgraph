@@ -106,9 +106,19 @@ class ComboBox(QtWidgets.QComboBox):
         If a dict is given, then the keys are used to populate the combo box
         and the values will be used for both value() and setValue().
         """
-        self.clear()
-        self.addItems(items)
-
+        prevVal = self.value()
+        
+        self.blockSignals(True)
+        try:
+            self.clear()
+            self.addItems(items)
+        finally:
+            self.blockSignals(False)
+            
+        # only emit if we were not able to re-set the original value
+        if self.value() != prevVal:
+            self.currentIndexChanged.emit(self.currentIndex())
+        
     def items(self):
         return self.items.copy()
         

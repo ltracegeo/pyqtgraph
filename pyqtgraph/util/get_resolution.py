@@ -4,7 +4,7 @@ from ..Qt import QtGui
 
 def test_screenInformation():
     # a qApp is still needed, otherwise screen is None
-    qApp = mkQApp()  # noqa
+    qApp = mkQApp()
     screen = QtGui.QGuiApplication.primaryScreen()
     screens = QtGui.QGuiApplication.screens()
     resolution = screen.size()

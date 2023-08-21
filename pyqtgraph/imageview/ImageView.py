@@ -11,25 +11,29 @@ Widget used for displaying 2D or 3D data. Features:
   - ROI plotting
   - Image normalization through a variety of methods
 """
+import importlib
 import os
 from math import log10
 from time import perf_counter
 
 import numpy as np
 
-from .. import debug as debug
 from .. import functions as fn
+from ..Qt import QT_LIB, QtCore, QtGui, QtWidgets
+
+ui_template = importlib.import_module(
+    f'.ImageViewTemplate_{QT_LIB.lower()}', package=__package__)
+
+from .. import debug as debug
 from .. import getConfigOption
 from ..graphicsItems.GradientEditorItem import addGradientListToDocstring
-from ..graphicsItems.ImageItem import ImageItem
-from ..graphicsItems.InfiniteLine import InfiniteLine
-from ..graphicsItems.LinearRegionItem import LinearRegionItem
-from ..graphicsItems.ROI import ROI
-from ..graphicsItems.ViewBox import ViewBox
+from ..graphicsItems.ImageItem import *
+from ..graphicsItems.InfiniteLine import *
+from ..graphicsItems.LinearRegionItem import *
+from ..graphicsItems.ROI import *
+from ..graphicsItems.ViewBox import *
 from ..graphicsItems.VTickGroup import VTickGroup
-from ..Qt import QtCore, QtGui, QtWidgets
 from ..SignalProxy import SignalProxy
-from . import ImageViewTemplate_generic as ui_template
 
 try:
     from bottleneck import nanmax, nanmin
@@ -37,7 +41,6 @@ except ImportError:
     from numpy import nanmax, nanmin
 
 translate = QtCore.QCoreApplication.translate
-
 
 class PlotROI(ROI):
     def __init__(self, size):
@@ -80,54 +83,44 @@ class ImageView(QtWidgets.QWidget):
     sigTimeChanged = QtCore.Signal(object, object)
     sigProcessingChanged = QtCore.Signal(object)
     
-    def __init__(
-            self,
-            parent=None,
-            name="ImageView",
-            view=None,
-            imageItem=None,
-            levelMode='mono',
-            discreteTimeLine=False,
-            roi=None,
-            normRoi=None,
-            *args,
-    ):
+    def __init__(self, parent=None, name="ImageView", view=None, imageItem=None, 
+                 levelMode='mono', *args):
         """
         By default, this class creates an :class:`ImageItem <pyqtgraph.ImageItem>` to display image data
-        and a :class:`ViewBox <pyqtgraph.ViewBox>` to contain the ImageItem.
-
-        Parameters
-        ----------
-        parent : QWidget
-            Specifies the parent widget to which this ImageView will belong. If None, then the ImageView is created with
-            no parent.
-        name : str
-            The name used to register both the internal ViewBox and the PlotItem used to display ROI data. See the
-            *name* argument to :func:`ViewBox.__init__() <pyqtgraph.ViewBox.__init__>`.
-        view : ViewBox or PlotItem
-            If specified, this will be used as the display area that contains the displayed image. Any
-            :class:`ViewBox <pyqtgraph.ViewBox>`, :class:`PlotItem <pyqtgraph.PlotItem>`, or other compatible object is
-            acceptable. Note: to display axis ticks inside the ImageView, instantiate it with a PlotItem instance as its
-            view::
-
-                pg.ImageView(view=pg.PlotItem())
-        imageItem : ImageItem
-            If specified, this object will be used to display the image. Must be an instance of ImageItem or other
-            compatible object.
-        levelMode : str
-            See the *levelMode* argument to :func:`HistogramLUTItem.__init__() <pyqtgraph.HistogramLUTItem.__init__>`
-        discreteTimeLine : bool
-            Whether to snap to xvals / frame numbers when interacting with the timeline position.
-        roi : ROI
-            If specified, this object is used as ROI for the plot feature. Must be an instance of ROI.
-        normRoi : ROI
-            If specified, this object is used as ROI for the normalization feature. Must be an instance of ROI.
+        and a :class:`ViewBox <pyqtgraph.ViewBox>` to contain the ImageItem. 
+        
+        ============= =========================================================
+        **Arguments** 
+        parent        (QWidget) Specifies the parent widget to which
+                      this ImageView will belong. If None, then the ImageView
+                      is created with no parent.
+        name          (str) The name used to register both the internal ViewBox
+                      and the PlotItem used to display ROI data. See the *name*
+                      argument to :func:`ViewBox.__init__() 
+                      <pyqtgraph.ViewBox.__init__>`.
+        view          (ViewBox or PlotItem) If specified, this will be used
+                      as the display area that contains the displayed image. 
+                      Any :class:`ViewBox <pyqtgraph.ViewBox>`, 
+                      :class:`PlotItem <pyqtgraph.PlotItem>`, or other 
+                      compatible object is acceptable.
+        imageItem     (ImageItem) If specified, this object will be used to
+                      display the image. Must be an instance of ImageItem
+                      or other compatible object.
+        levelMode     See the *levelMode* argument to 
+                      :func:`HistogramLUTItem.__init__() 
+                      <pyqtgraph.HistogramLUTItem.__init__>`
+        ============= =========================================================
+        
+        Note: to display axis ticks inside the ImageView, instantiate it 
+        with a PlotItem instance as its view::
+                
+            pg.ImageView(view=pg.PlotItem())
         """
         QtWidgets.QWidget.__init__(self, parent, *args)
         self._imageLevels = None  # [(min, max), ...] per channel image metrics
         self.levelMin = None    # min / max levels across all channels
         self.levelMax = None
-
+        
         self.name = name
         self.image = None
         self.axes = {}
@@ -135,10 +128,9 @@ class ImageView(QtWidgets.QWidget):
         self.ui = ui_template.Ui_Form()
         self.ui.setupUi(self)
         self.scene = self.ui.graphicsView.scene()
-        self.discreteTimeLine = discreteTimeLine
-        self.ui.histogram.setLevelMode(levelMode)
-        self.ignoreTimeLine = False
-
+        
+        self.ignorePlaying = False
+        
         if view is None:
             self.view = ViewBox()
         else:
@@ -151,18 +143,12 @@ class ImageView(QtWidgets.QWidget):
         
         self.ui.normGroup.hide()
 
-        if roi is None:
-            self.roi = PlotROI(10)
-        else:
-            self.roi = roi
+        self.roi = PlotROI(10)
         self.roi.setZValue(20)
         self.view.addItem(self.roi)
         self.roi.hide()
-        if normRoi is None:
-            self.normRoi = PlotROI(10)
-            self.normRoi.setPen('y')
-        else:
-            self.normRoi = normRoi
+        self.normRoi = PlotROI(10)
+        self.normRoi.setPen('y')
         self.normRoi.setZValue(20)
         self.view.addItem(self.normRoi)
         self.normRoi.hide()
@@ -201,8 +187,7 @@ class ImageView(QtWidgets.QWidget):
         self.keysPressed = {}
         self.playTimer = QtCore.QTimer()
         self.playRate = 0
-        self._pausedPlayRate = None
-        self.fps = 1  # 1 Hz by default
+        self.fps = 1 # 1 Hz by default
         self.lastPlayTime = 0
         
         self.normRgn = LinearRegionItem()
@@ -231,77 +216,49 @@ class ImageView(QtWidgets.QWidget):
         self.ui.normTimeRangeCheck.clicked.connect(self.updateNorm)
         self.playTimer.timeout.connect(self.timeout)
         
-        self.normProxy = SignalProxy(
-            self.normRgn.sigRegionChanged,
-            slot=self.updateNorm,
-            threadSafe=False,
-        )
+        self.normProxy = SignalProxy(self.normRgn.sigRegionChanged, slot=self.updateNorm)
         self.normRoi.sigRegionChangeFinished.connect(self.updateNorm)
         
         self.ui.roiPlot.registerPlot(self.name + '_ROI')
         self.view.register(self.name)
         
-        self.noRepeatKeys = [
-            QtCore.Qt.Key.Key_Right,
-            QtCore.Qt.Key.Key_Left,
-            QtCore.Qt.Key.Key_Up,
-            QtCore.Qt.Key.Key_Down,
-            QtCore.Qt.Key.Key_PageUp,
-            QtCore.Qt.Key.Key_PageDown,
-        ]
+        self.noRepeatKeys = [QtCore.Qt.Key.Key_Right, QtCore.Qt.Key.Key_Left, QtCore.Qt.Key.Key_Up, QtCore.Qt.Key.Key_Down, QtCore.Qt.Key.Key_PageUp, QtCore.Qt.Key.Key_PageDown]
         
         self.roiClicked() ## initialize roi plot to correct shape / visibility
 
-    def setImage(
-            self,
-            img,
-            autoRange=True,
-            autoLevels=True,
-            levels=None,
-            axes=None,
-            xvals=None,
-            pos=None,
-            scale=None,
-            transform=None,
-            autoHistogramRange=True,
-            levelMode=None,
-    ):
+    def setImage(self, img, autoRange=True, autoLevels=True, levels=None, axes=None, xvals=None, pos=None, scale=None, transform=None, autoHistogramRange=True, levelMode=None):
         """
         Set the image to be displayed in the widget.
+        
+        ================== ===========================================================================
+        **Arguments:**
+        img                (numpy array) the image to be displayed. See :func:`ImageItem.setImage` and
+                           *notes* below.
+        xvals              (numpy array) 1D array of z-axis values corresponding to the first axis
+                           in a 3D image. For video, this array should contain the time of each 
+                           frame.
+        autoRange          (bool) whether to scale/pan the view to fit the image.
+        autoLevels         (bool) whether to update the white/black levels to fit the image.
+        levels             (min, max); the white and black level values to use.
+        axes               Dictionary indicating the interpretation for each axis.
+                           This is only needed to override the default guess. Format is::
+                       
+                               {'t':0, 'x':1, 'y':2, 'c':3};
+        
+        pos                Change the position of the displayed image
+        scale              Change the scale of the displayed image
+        transform          Set the transform of the displayed image. This option overrides *pos*
+                           and *scale*.
+        autoHistogramRange If True, the histogram y-range is automatically scaled to fit the
+                           image data.
+        levelMode          If specified, this sets the user interaction mode for setting image 
+                           levels. Options are 'mono', which provides a single level control for
+                           all image channels, and 'rgb' or 'rgba', which provide individual
+                           controls for each channel.
+        ================== ===========================================================================
 
-        Parameters
-        ----------
-        img : np.ndarray
-            The image to be displayed. See :func:`ImageItem.setImage` and *notes* below.
-        autoRange : bool
-            Whether to scale/pan the view to fit the image.
-        autoLevels : bool
-            Whether to update the white/black levels to fit the image.
-        levels : tuple
-            (min, max) white and black level values to use.
-        axes : dict
-            Dictionary indicating the interpretation for each axis. This is only needed to override the default guess.
-            Format is::
-
-                {'t':0, 'x':1, 'y':2, 'c':3};
-        xvals : np.ndarray
-            1D array of values corresponding to the first axis in a 3D image. For video, this array should contain
-            the time of each frame.
-        pos
-            Change the position of the displayed image
-        scale
-            Change the scale of the displayed image
-        transform
-            Set the transform of the displayed image. This option overrides *pos* and *scale*.
-        autoHistogramRange : bool
-            If True, the histogram y-range is automatically scaled to fit the image data.
-        levelMode : str
-            If specified, this sets the user interaction mode for setting image levels. Options are 'mono',
-            which provides a single level control for all image channels, and 'rgb' or 'rgba', which provide
-            individual controls for each channel.
-
-        Notes
-        -----
+        **Notes:**        
+        
         For backward compatibility, image data is assumed to be in column-major order (column, row).
         However, most image data is stored in row-major order (row, column) and will need to be
         transposed before calling setImage()::
@@ -310,29 +267,30 @@ class ImageView(QtWidgets.QWidget):
             
         This requirement can be changed by the ``imageAxisOrder``
         :ref:`global configuration option <apiref_config>`.
+        
         """
         profiler = debug.Profiler()
-
+        
         if hasattr(img, 'implements') and img.implements('MetaArray'):
             img = img.asarray()
-
+        
         if not isinstance(img, np.ndarray):
             required = ['dtype', 'max', 'min', 'ndim', 'shape', 'size']
             if not all(hasattr(img, attr) for attr in required):
                 raise TypeError("Image must be NumPy array or any object "
                                 "that provides compatible attributes/methods:\n"
                                 "  %s" % str(required))
-
+        
         self.image = img
         self.imageDisp = None
         if levelMode is not None:
             self.ui.histogram.setLevelMode(levelMode)
-
+        
         profiler()
-
+        
         if axes is None:
             x,y = (0, 1) if self.imageItem.axisOrder == 'col-major' else (1, 0)
-
+            
             if img.ndim == 2:
                 self.axes = {'t': None, 'x': x, 'y': y, 'c': None}
             elif img.ndim == 3:
@@ -427,10 +385,9 @@ class ImageView(QtWidgets.QWidget):
     def play(self, rate=None):
         """Begin automatically stepping frames forward at the given rate (in fps).
         This can also be accessed by pressing the spacebar."""
-        if rate is None:
-            rate = self._pausedPlayRate or self.fps
-        if rate == 0 and self.playRate not in (None, 0):
-            self._pausedPlayRate = self.playRate
+        #print "play:", rate
+        if rate is None: 
+            rate = self.fps
         self.playRate = rate
 
         if rate == 0:
@@ -439,44 +396,8 @@ class ImageView(QtWidgets.QWidget):
             
         self.lastPlayTime = perf_counter()
         if not self.playTimer.isActive():
-            self.playTimer.start(abs(int(1000/rate)))
-
-    def togglePause(self):
-        if self.playTimer.isActive():
-            self.play(0)
-        elif self.playRate == 0:
-            if self._pausedPlayRate is not None:
-                fps = self._pausedPlayRate
-            else:
-                fps = (self.nframes() - 1) / (self.tVals[-1] - self.tVals[0])
-            self.play(fps)
-        else:
-            self.play(self.playRate)
-
-    def setHistogramLabel(self, text=None, **kwargs):
-        """
-        Set the label text of the histogram axis similar to
-        :func:`AxisItem.setLabel() <pyqtgraph.AxisItem.setLabel>`
-        """
-        a = self.ui.histogram.axis
-        a.setLabel(text, **kwargs)
-        if text == '':
-            a.showLabel(False)
-        self.ui.histogram.setMinimumWidth(135)
-
-    def nframes(self):
-        """
-        Returns
-        -------
-        int
-            The number of frames in the image data.
-        """
-        if self.image is None:
-            return 0
-        elif self.axes['t'] is not None:
-            return self.image.shape[self.axes['t']]
-        return 1
-
+            self.playTimer.start(16)
+            
     def autoLevels(self):
         """Set the min/max intensity levels automatically to match the image data."""
         self.setLevels(rgba=self._imageLevels)
@@ -490,7 +411,7 @@ class ImageView(QtWidgets.QWidget):
 
     def autoRange(self):
         """Auto scale and pan the view around the image such that the image fills the view."""
-        self.getProcessedImage()
+        image = self.getProcessedImage()
         self.view.autoRange()
         
     def getProcessedImage(self):
@@ -519,14 +440,17 @@ class ImageView(QtWidgets.QWidget):
             return
 
         if ev.key() == QtCore.Qt.Key.Key_Space:
-            self.togglePause()
+            if self.playRate == 0:
+                self.play()
+            else:
+                self.play(0)
             ev.accept()
         elif ev.key() == QtCore.Qt.Key.Key_Home:
             self.setCurrentIndex(0)
             self.play(0)
             ev.accept()
         elif ev.key() == QtCore.Qt.Key.Key_End:
-            self.setCurrentIndex(self.nframes()-1)
+            self.setCurrentIndex(self.getProcessedImage().shape[0]-1)
             self.play(0)
             ev.accept()
         elif ev.key() in self.noRepeatKeys:
@@ -594,13 +518,11 @@ class ImageView(QtWidgets.QWidget):
         
     def setCurrentIndex(self, ind):
         """Set the currently displayed frame index."""
-        index = fn.clip_scalar(ind, 0, self.nframes()-1)
-        self.currentIndex = index
-        self.updateImage()
-        self.ignoreTimeLine = True
+        index = fn.clip_scalar(ind, 0, self.getProcessedImage().shape[self.axes['t']]-1)
+        self.ignorePlaying = True
         # Implicitly call timeLineChanged
         self.timeLine.setValue(self.tVals[index])
-        self.ignoreTimeLine = False
+        self.ignorePlaying = False
 
     def jumpFrames(self, n):
         """Move video frame ahead n frames (may be negative)"""
@@ -808,28 +730,22 @@ class ImageView(QtWidgets.QWidget):
         return norm
         
     def timeLineChanged(self):
-        if not self.ignoreTimeLine:
+        if not self.ignorePlaying:
             self.play(0)
 
         (ind, time) = self.timeIndex(self.timeLine)
         if ind != self.currentIndex:
             self.currentIndex = ind
             self.updateImage()
-        if self.discreteTimeLine:
-            with fn.SignalBlock(self.timeLine.sigPositionChanged, self.timeLineChanged):
-                if self.tVals is not None:
-                    self.timeLine.setPos(self.tVals[ind])
-                else:
-                    self.timeLine.setPos(ind)
-
         self.sigTimeChanged.emit(ind, time)
 
     def updateImage(self, autoHistogramRange=True):
         ## Redraw image on screen
         if self.image is None:
             return
-    
+            
         image = self.getProcessedImage()
+        
         if autoHistogramRange:
             self.ui.histogram.setHistogramRange(self.levelMin, self.levelMax)
         
@@ -847,19 +763,13 @@ class ImageView(QtWidgets.QWidget):
             image = image[self.currentIndex]
             
         self.imageItem.updateImage(image)
-
+            
+            
     def timeIndex(self, slider):
-        """
-        Returns
-        -------
-        int
-            The index of the frame closest to the timeline slider.
-        float
-            The time value of the slider.
-        """
+        ## Return the time and frame index indicated by a slider
         if not self.hasTimeAxis():
-            return 0, 0.0
-
+            return (0,0)
+        
         t = slider.value()
 
         xv = self.tVals
@@ -867,11 +777,12 @@ class ImageView(QtWidgets.QWidget):
             ind = int(t)
         else:
             if len(xv) < 2:
-                return 0, 0.0
+                return (0,0)
+            totTime = xv[-1] + (xv[-1]-xv[-2])
             inds = np.argwhere(xv <= t)
             if len(inds) < 1:
-                return 0, t
-            ind = inds[-1, 0]
+                return (0,t)
+            ind = inds[-1,0]
         return ind, t
 
     def getView(self):
@@ -909,10 +820,12 @@ class ImageView(QtWidgets.QWidget):
             self.imageItem.save(fileName)
             
     def exportClicked(self):
-        fileName, _ = QtWidgets.QFileDialog.getSaveFileName()
-        if not fileName:
+        fileName = QtWidgets.QFileDialog.getSaveFileName()
+        if isinstance(fileName, tuple):
+            fileName = fileName[0]  # Qt4/5 API difference
+        if fileName == '':
             return
-        self.export(fileName)
+        self.export(str(fileName))
         
     def buildMenu(self):
         self.menu = QtWidgets.QMenu()
@@ -932,16 +845,17 @@ class ImageView(QtWidgets.QWidget):
     def setColorMap(self, colormap):
         """Set the color map. 
 
-        Parameters
-        ----------
-        colormap : ColorMap
-            The ColorMap to use for coloring images.
+        ============= =========================================================
+        **Arguments**
+        colormap      (A ColorMap() instance) The ColorMap to use for coloring 
+                      images.
+        ============= =========================================================
         """
         self.ui.histogram.gradient.setColorMap(colormap)
 
     @addGradientListToDocstring()
     def setPredefinedGradient(self, name):
-        """Set one of the gradients defined in :class:`GradientEditorItem`.
+        """Set one of the gradients defined in :class:`GradientEditorItem <pyqtgraph.graphicsItems.GradientEditorItem>`.
         Currently available gradients are:   
         """
         self.ui.histogram.gradient.loadPreset(name)

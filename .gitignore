@@ -21,6 +21,7 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
+doc/_build
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -58,6 +59,9 @@ coverage.xml
 *.log
 *.pot
 
+# Sphinx documentation
+docs/_build/
+
 #mac
 .DS_Store
 *~
@@ -77,40 +81,31 @@ coverage.xml
 *.am
 *.tiff
 *.tif
-*.png
-!doc/source/**/*.png
 *.dat
 *.DAT
 
-# Sphinx documentation
-doc/_build/
+#generated documntation files
 doc/resource/api/generated/
 
 # Enaml
 __enamlcache__/
 
-# Sublime Text
-*.sublime-workspace
-*.sublime-project
-
-# pyright
-pyrightconfig.json
 
 # PyBuilder
 target/
+
+# sphinx docs
+generated/
 
 MANIFEST
 deb_build
 rtr.cvs
 
+# pytest parallel
+.coverage
+
 # ctags
 .tags*
 
-# asv artifcats
 .asv/
 asv.conf.json
-
-# jupyter notebooks
-.ipynb_checkpoints
-
-.venv

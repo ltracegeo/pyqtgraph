@@ -88,11 +88,7 @@ def makeAllParamTypes():
         btn = Parameter.create(name=f'{name} All', type='action')
         btn.sigActivated.connect(activate)
         params.insertChild(0, btn)
-    missing = [
-        typ
-        for typ in set(PARAM_TYPES).difference(_encounteredTypes)
-        if not typ.startswith("_")
-    ]
+    missing = set(PARAM_TYPES).difference(_encounteredTypes)
     if missing:
         raise RuntimeError(f'{missing} parameters are not represented')
     return params

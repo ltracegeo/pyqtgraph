@@ -1,13 +1,15 @@
 from ..Qt import QT_LIB, QtCore, QtGui, QtWidgets
 
+if QT_LIB.startswith('PyQt'):
+    from ..Qt import sip
+
 import atexit
-import enum
 import mmap
 import os
+import random
 import sys
 import tempfile
 
-from .. import Qt
 from .. import CONFIG_OPTIONS
 from .. import multiprocess as mp
 from .GraphicsView import GraphicsView
@@ -16,14 +18,13 @@ __all__ = ['RemoteGraphicsView']
 
 
 def serialize_mouse_enum(*args):
-    # PySide6 (opt-in in 6.3.1) and PyQt6
-    # - implemented as python enums
-    # - can pickle enums and flags
-    # - PyQt6 cannot cast to int
+    # PyQt6 can pickle enums and flags but cannot cast to int
     # PyQt5 5.12, PyQt5 5.15, PySide2 5.15, PySide6 can pickle enums but not flags
     # PySide2 5.12 cannot pickle enums nor flags
     # MouseButtons and KeyboardModifiers are flags
-    return [x if isinstance(x, enum.Enum) else int(x) for x in args]
+    if QT_LIB != 'PyQt6':
+        args = [int(x) for x in args]
+    return args
 
 
 class MouseEvent(QtGui.QMouseEvent):
@@ -52,10 +53,9 @@ class MouseEvent(QtGui.QMouseEvent):
     def __setstate__(self, state):
         typ, lpos, gpos, btn, btns, mods = state
         typ = QtCore.QEvent.Type(typ)
-        btn = QtCore.Qt.MouseButton(btn)
-        if not isinstance(btns, enum.Enum):
+        if QT_LIB != 'PyQt6':
+            btn = QtCore.Qt.MouseButton(btn)
             btns = QtCore.Qt.MouseButtons(btns)
-        if not isinstance(mods, enum.Enum):
             mods = QtCore.Qt.KeyboardModifiers(mods)
         super().__init__(typ, lpos, gpos, btn, btns, mods)
 
@@ -85,11 +85,10 @@ class WheelEvent(QtGui.QWheelEvent):
 
     def __setstate__(self, state):
         pos, gpos, pixdel, angdel, btns, mods, phase, inverted = state
-        if not isinstance(btns, enum.Enum):
+        if QT_LIB != 'PyQt6':
             btns = QtCore.Qt.MouseButtons(btns)
-        if not isinstance(mods, enum.Enum):
             mods = QtCore.Qt.KeyboardModifiers(mods)
-        phase = QtCore.Qt.ScrollPhase(phase)
+            phase = QtCore.Qt.ScrollPhase(phase)
         super().__init__(pos, gpos, pixdel, angdel, btns, mods, phase, inverted)
 
 
@@ -168,11 +167,10 @@ class RemoteGraphicsView(QtWidgets.QWidget):
         self.setMouseTracking(True)
         self.shm = None
         shmFileName = self._view.shmFileName()
-        if sys.platform == 'win32':
-            opener = lambda path, flags: os.open(path, flags | os.O_TEMPORARY)
+        if sys.platform.startswith('win'):
+            self.shmtag = shmFileName
         else:
-            opener = None
-        self.shmFile = open(shmFileName, 'rb', opener=opener)
+            self.shmFile = open(shmFileName, 'r')
         
         self._view.sceneRendered.connect(mp.proxy(self.remoteSceneChanged)) #, callSync='off'))
                                                                             ## Note: we need synchronous signals
@@ -192,11 +190,16 @@ class RemoteGraphicsView(QtWidgets.QWidget):
         return QtCore.QSize(*self._sizeHint)
         
     def remoteSceneChanged(self, data):
-        w, h, size = data
+        w, h, size, newfile = data
+        #self._sizeHint = (whint, hhint)
         if self.shm is None or self.shm.size != size:
             if self.shm is not None:
                 self.shm.close()
-            self.shm = mmap.mmap(self.shmFile.fileno(), size, access=mmap.ACCESS_READ)
+            if sys.platform.startswith('win'):
+                self.shmtag = newfile   ## on windows, we create a new tag for every resize
+                self.shm = mmap.mmap(-1, size, self.shmtag) ## can't use tmpfile on windows because the file can only be opened once.
+            else:
+                self.shm = mmap.mmap(self.shmFile.fileno(), size, mmap.MAP_SHARED, mmap.PROT_READ)
         self._img = QtGui.QImage(self.shm, w, h, QtGui.QImage.Format.Format_RGB32).copy()
         self.update()
         
@@ -252,11 +255,16 @@ class Renderer(GraphicsView):
     
     def __init__(self, *args, **kwds):
         ## Create shared memory for rendered image
-        self.shmFile = tempfile.NamedTemporaryFile(prefix='pyqtgraph_shmem_')
-        size = mmap.PAGESIZE
-        self.shmFile.write(b'\x00' * size)
-        self.shmFile.flush()
-        self.shm = mmap.mmap(self.shmFile.fileno(), size, access=mmap.ACCESS_WRITE)
+        #pg.dbg(namespace={'r': self})
+        if sys.platform.startswith('win'):
+            self.shmtag = "pyqtgraph_shmem_" + ''.join([chr((random.getrandbits(20)%25) + 97) for i in range(20)])
+            self.shm = mmap.mmap(-1, mmap.PAGESIZE, self.shmtag) # use anonymous mmap on windows
+        else:
+            self.shmFile = tempfile.NamedTemporaryFile(prefix='pyqtgraph_shmem_')
+            self.shmFile.write(b'\x00' * (mmap.PAGESIZE+1))
+            self.shmFile.flush()
+            fd = self.shmFile.fileno()
+            self.shm = mmap.mmap(fd, mmap.PAGESIZE, mmap.MAP_SHARED, mmap.PROT_WRITE)
         atexit.register(self.close)
         
         GraphicsView.__init__(self, *args, **kwds)
@@ -268,10 +276,14 @@ class Renderer(GraphicsView):
         
     def close(self):
         self.shm.close()
-        self.shmFile.close()
+        if not sys.platform.startswith('win'):
+            self.shmFile.close()
 
     def shmFileName(self):
-        return self.shmFile.name
+        if sys.platform.startswith('win'):
+            return self.shmtag
+        else:
+            return self.shmFile.name
         
     def update(self):
         self.img = None
@@ -293,22 +305,26 @@ class Renderer(GraphicsView):
             iheight = int(self.height() * dpr)
             size = iwidth * iheight * 4
             if size > self.shm.size():
-                try:
-                    self.shm.resize(size)
-                except SystemError:
-                    # actually, the platforms on which resize() _does_ work
-                    # can also take this codepath
+                if sys.platform.startswith('win'):
+                    ## windows says "WindowsError: [Error 87] the parameter is incorrect" if we try to resize the mmap
+                    self.shm.close()
+                    ## it also says (sometimes) 'access is denied' if we try to reuse the tag.
+                    self.shmtag = "pyqtgraph_shmem_" + ''.join([chr((random.getrandbits(20)%25) + 97) for i in range(20)])
+                    self.shm = mmap.mmap(-1, size, self.shmtag)
+                elif sys.platform == 'darwin':
                     self.shm.close()
                     fd = self.shmFile.fileno()
-                    os.ftruncate(fd, size)
-                    self.shm = mmap.mmap(fd, size, access=mmap.ACCESS_WRITE)
+                    os.ftruncate(fd, size + 1)
+                    self.shm = mmap.mmap(fd, size, mmap.MAP_SHARED, mmap.PROT_WRITE)
+                else:
+                    self.shm.resize(size)
             
             ## render the scene directly to shared memory
 
-            # see functions.py::ndarray_to_qimage() for rationale
+            # see functions.py::makeQImage() for rationale
             if QT_LIB.startswith('PyQt'):
                 # PyQt5, PyQt6 >= 6.0.1
-                img_ptr = int(Qt.sip.voidptr(self.shm))
+                img_ptr = int(sip.voidptr(self.shm))
             else:
                 # PySide2, PySide6
                 img_ptr = self.shm
@@ -320,4 +336,4 @@ class Renderer(GraphicsView):
             p = QtGui.QPainter(self.img)
             self.render(p, self.viewRect(), self.rect())
             p.end()
-            self.sceneRendered.emit((iwidth, iheight, self.shm.size()))
+            self.sceneRendered.emit((iwidth, iheight, self.shm.size(), self.shmFileName()))

@@ -8,13 +8,13 @@ __all__ = ['GLVolumeItem']
 
 class GLVolumeItem(GLGraphicsItem):
     """
-    **Bases:** :class:`GLGraphicsItem <pyqtgraph.opengl.GLGraphicsItem.GLGraphicsItem>`
+    **Bases:** :class:`GLGraphicsItem <pyqtgraph.opengl.GLGraphicsItem>`
     
     Displays volumetric data. 
     """
     
     
-    def __init__(self, data, sliceDensity=1, smooth=True, glOptions='translucent', parentItem=None):
+    def __init__(self, data, sliceDensity=1, smooth=True, glOptions='translucent'):
         """
         ==============  =======================================================================================
         **Arguments:**
@@ -29,7 +29,7 @@ class GLVolumeItem(GLGraphicsItem):
         self.data = None
         self._needUpload = False
         self.texture = None
-        super().__init__(parentItem=parentItem)
+        GLGraphicsItem.__init__(self)
         self.setGLOptions(glOptions)
         self.setData(data)
         
@@ -104,6 +104,8 @@ class GLVolumeItem(GLGraphicsItem):
         glDisable(GL_TEXTURE_3D)
                 
     def drawVolume(self, ax, d):
+        N = 5
+        
         imax = [0,1,2]
         imax.remove(ax)
         

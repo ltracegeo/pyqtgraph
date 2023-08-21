@@ -11,15 +11,13 @@ app = pg.mkQApp()
 def test_ImageExporter_filename_dialog():
     """Tests ImageExporter code path that opens a file dialog. Regression test
     for pull request 1133."""
-    p = pg.PlotWidget()
-    p.show()
+    p = pg.plot()
     exp = ImageExporter(p.getPlotItem())
     exp.export()
 
 
 def test_ImageExporter_toBytes():
-    p = pg.PlotWidget()
-    p.show()
+    p = pg.plot()
     p.hideAxis('bottom')
     p.hideAxis('left')
     exp = ImageExporter(p.getPlotItem())

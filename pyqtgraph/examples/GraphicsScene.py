@@ -1,4 +1,5 @@
 import pyqtgraph as pg
+from pyqtgraph.GraphicsScene import GraphicsScene
 from pyqtgraph.Qt import QtCore, QtWidgets
 
 app = pg.mkQApp("GraphicsScene Example")
@@ -9,6 +10,7 @@ win.show()
 class Obj(QtWidgets.QGraphicsObject):
     def __init__(self):
         QtWidgets.QGraphicsObject.__init__(self)
+        GraphicsScene.registerObject(self)
         
     def paint(self, p, *args):
         p.setPen(pg.mkPen(200,200,200))

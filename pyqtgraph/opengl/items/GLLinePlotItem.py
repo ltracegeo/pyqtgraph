@@ -10,9 +10,9 @@ __all__ = ['GLLinePlotItem']
 class GLLinePlotItem(GLGraphicsItem):
     """Draws line plots in 3D."""
     
-    def __init__(self, parentItem=None, **kwds):
+    def __init__(self, **kwds):
         """All keyword arguments are passed to setData()"""
-        super().__init__(parentItem=parentItem)
+        GLGraphicsItem.__init__(self)
         glopts = kwds.pop('glOptions', 'additive')
         self.setGLOptions(glopts)
         self.pos = None

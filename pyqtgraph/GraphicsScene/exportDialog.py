@@ -1,10 +1,14 @@
+import importlib
+
 from .. import exporters as exporters
 from .. import functions as fn
 from ..graphicsItems.PlotItem import PlotItem
 from ..graphicsItems.ViewBox import ViewBox
-from ..Qt import QtCore, QtWidgets
+from ..Qt import QT_LIB, QtCore, QtWidgets
 
-from . import exportDialogTemplate_generic as ui_template
+ui_template = importlib.import_module(
+    f'.exportDialogTemplate_{QT_LIB.lower()}', package=__package__)
+
 
 class FormatExportListWidgetItem(QtWidgets.QListWidgetItem):
     def __init__(self, expClass, *args, **kwargs):
@@ -49,12 +53,13 @@ class ExportDialog(QtWidgets.QWidget):
         self.activateWindow()
         self.raise_()
         self.selectBox.setVisible(True)
+        
         if not self.shown:
             self.shown = True
             vcenter = self.scene.getViewWidget().geometry().center()
-            x = max(0, int(vcenter.x() - self.width() / 2))
-            y = max(0, int(vcenter.y() - self.height() / 2))
-            self.move(x, y)
+            self.setGeometry(int(vcenter.x() - self.width() / 2),
+                             int(vcenter.y() - self.height() / 2),
+                             self.width(), self.height())
         
     def updateItemList(self, select=None):
         self.ui.itemTree.clear()
@@ -104,7 +109,7 @@ class ExportDialog(QtWidgets.QWidget):
         for exp in exporters.listExporters():
             item = FormatExportListWidgetItem(exp, QtCore.QCoreApplication.translate('Exporter', exp.Name))
             self.ui.formatList.addItem(item)
-            if item is current:
+            if item == current:
                 self.ui.formatList.setCurrentRow(self.ui.formatList.count() - 1)
                 gotCurrent = True
                 

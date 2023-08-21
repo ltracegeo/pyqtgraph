@@ -11,7 +11,7 @@ __all__ = ['GraphicsLayout']
 class GraphicsLayout(GraphicsWidget):
     """
     Used for laying out GraphicsWidgets in a grid.
-    This is usually created automatically as part of a :class:`GraphicsLayoutWidget <pyqtgraph.GraphicsLayoutWidget>`.
+    This is usually created automatically as part of a :class:`GraphicsWindow <pyqtgraph.GraphicsWindow>` or :class:`GraphicsLayoutWidget <pyqtgraph.GraphicsLayoutWidget>`.
     """
 
     def __init__(self, parent=None, border=None):
@@ -149,27 +149,10 @@ class GraphicsLayout(GraphicsWidget):
         return self.rect()
 
     def itemIndex(self, item):
-        """Return the numerical index of GraphicsItem object passed in
-
-        Parameters
-        ----------
-        item : QGraphicsLayoutItem
-            Item to query the index position of
-
-        Returns
-        -------
-        int
-            Index of the item within the graphics layout
-
-        Raises
-        ------
-        ValueError
-            Raised if item could not be found inside the GraphicsLayout instance.
-        """
         for i in range(self.layout.count()):
             if self.layout.itemAt(i).graphicsItem() is item:
                 return i
-        raise ValueError(f"Could not determine index of item {item}")
+        raise Exception("Could not determine index of item " + str(item))
     
     def removeItem(self, item):
         """Remove *item* from the layout."""
@@ -182,14 +165,11 @@ class GraphicsLayout(GraphicsWidget):
         del self.items[item]
 
         item.geometryChanged.disconnect(self._updateItemBorder)
-        itemBorder = self.itemBorders.pop(item)
-        self.scene().removeItem(itemBorder)
+        del self.itemBorders[item]
 
         self.update()
     
     def clear(self):
-        """Remove all items from the layout and set the current row and column to 0
-        """
         for i in list(self.items.keys()):
             self.removeItem(i)
         self.currentRow = 0

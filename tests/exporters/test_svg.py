@@ -2,6 +2,7 @@ import pyqtgraph as pg
 
 app = pg.mkQApp()
 
+
 def test_plotscene(tmpdir):
     pg.setConfigOption('foreground', (0,0,0))
     w = pg.GraphicsLayoutWidget()

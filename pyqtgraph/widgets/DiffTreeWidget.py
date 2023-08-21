@@ -50,6 +50,7 @@ class DiffTreeWidget(QtWidgets.QWidget):
                 
         """
         bad = (255, 200, 200)
+        diff = []
         # generate typestr, desc, childs for each object
         typeA, descA, childsA, _ = self.trees[0].parse(a)
         typeB, descB, childsB, _ = self.trees[1].parse(b)
