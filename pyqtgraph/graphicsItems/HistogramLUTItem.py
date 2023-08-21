@@ -12,12 +12,12 @@ from .. import debug as debug
 from .. import functions as fn
 from ..Point import Point
 from ..Qt import QtCore, QtGui, QtWidgets
-from .AxisItem import AxisItem
-from .GradientEditorItem import GradientEditorItem
+from .AxisItem import *
+from .GradientEditorItem import *
 from .GraphicsWidget import GraphicsWidget
-from .LinearRegionItem import LinearRegionItem
-from .PlotCurveItem import PlotCurveItem
-from .ViewBox import ViewBox
+from .LinearRegionItem import *
+from .PlotCurveItem import *
+from .ViewBox import *
 
 __all__ = ['HistogramLUTItem']
 
@@ -64,11 +64,11 @@ class HistogramLUTItem(GraphicsWidget):
 
     Attributes
     ----------
-    sigLookupTableChanged : QtCore.Signal
+    sigLookupTableChanged : signal
         Emits the HistogramLUTItem itself when the gradient changes
-    sigLevelsChanged : QtCore.Signal
+    sigLevelsChanged : signal
         Emits the HistogramLUTItem itself while the movable region is changing
-    sigLevelChangeFinished : QtCore.Signal
+    sigLevelChangeFinished : signal
         Emits the HistogramLUTItem itself when the movable region is finished changing
 
     See Also
@@ -195,7 +195,7 @@ class HistogramLUTItem(GraphicsWidget):
         level : float, optional
             Set the fill level. See :meth:`PlotCurveItem.setFillLevel
             <pyqtgraph.PlotCurveItem.setFillLevel>`. Only used if ``fill`` is True.
-        color : color_like, optional
+        color : color, optional
             Color to use for the fill when the histogram ``levelMode == "mono"``. See
             :meth:`PlotCurveItem.setBrush <pyqtgraph.PlotCurveItem.setBrush>`.
         """
@@ -254,20 +254,13 @@ class HistogramLUTItem(GraphicsWidget):
                 p.drawLine(gradRect.topRight(), gradRect.bottomRight())
 
     def setHistogramRange(self, mn, mx, padding=0.1):
-        """Set the X/Y range on the histogram plot, depending on the orientation. This disables auto-scaling."""
+        """Set the Y range on the histogram plot. This disables auto-scaling."""
         if self.orientation == 'vertical':
             self.vb.enableAutoRange(self.vb.YAxis, False)
             self.vb.setYRange(mn, mx, padding)
         else:
             self.vb.enableAutoRange(self.vb.XAxis, False)
             self.vb.setXRange(mn, mx, padding)
-
-    def getHistogramRange(self):
-        """Returns range on the histogram plot."""
-        if self.orientation == 'vertical':
-            return self.vb.viewRange()[1]
-        else:
-            return self.vb.viewRange()[0]
 
     def autoHistogramRange(self):
         """Enable auto-scaling on the histogram plot."""
@@ -282,8 +275,7 @@ class HistogramLUTItem(GraphicsWidget):
         HistogramLUTItem.
         """
         self.imageItem = weakref.ref(img)
-        if hasattr(img, 'sigImageChanged'):
-            img.sigImageChanged.connect(self.imageChanged)
+        img.sigImageChanged.connect(self.imageChanged)
         self._setImageLookupTable()
         self.regionChanged()
         self.imageChanged(autoLevel=True)
@@ -352,7 +344,7 @@ class HistogramLUTItem(GraphicsWidget):
                 self.region.setRegion([mn, mx])
                 profiler('set region')
             else:
-                mn, mx = self.imageItem().getLevels()
+                mn, mx = self.imageItem().levels
                 self.region.setRegion([mn, mx])
         else:
             # plot one histogram for each channel
@@ -438,8 +430,7 @@ class HistogramLUTItem(GraphicsWidget):
 
         # force this because calling self.setLevels might not set the imageItem
         # levels if there was no change to the region item
-        if self.imageItem() is not None:
-            self.imageItem().setLevels(self.getLevels())
+        self.imageItem().setLevels(self.getLevels())
 
         self.imageChanged()
         self.update()

@@ -14,7 +14,7 @@ from .ScatterPlotItem import ScatterPlotItem, drawSymbol
 __all__ = ['LegendItem', 'ItemSample']
 
 
-class LegendItem(GraphicsWidgetAnchor, GraphicsWidget):
+class LegendItem(GraphicsWidget, GraphicsWidgetAnchor):
     """
     Displays a legend used for describing the contents of a plot.
 
@@ -268,18 +268,6 @@ class LegendItem(GraphicsWidgetAnchor, GraphicsWidget):
         except IndexError:
             return None
 
-    def _removeItemFromLayout(self, *args):
-        for item in args:
-            self.layout.removeItem(item)
-            item.close()
-            # Normally, the item is automatically removed from
-            # its scene when it gets destroyed.
-            # this doesn't happen on current versions of
-            # PySide (5.15.x, 6.3.x) and results in a leak.
-            scene = item.scene()
-            if scene:
-                scene.removeItem(item)
-
     def removeItem(self, item):
         """Removes one item from the legend.
 
@@ -291,14 +279,20 @@ class LegendItem(GraphicsWidgetAnchor, GraphicsWidget):
         for sample, label in self.items:
             if sample.item is item or label.text == item:
                 self.items.remove((sample, label))  # remove from itemlist
-                self._removeItemFromLayout(sample, label)
-                self.updateSize()  # redraw box
+                self.layout.removeItem(sample)  # remove from layout
+                sample.close()  # remove from drawing
+                self.layout.removeItem(label)
+                label.close()
+                self.updateSize()  # redraq box
                 return  # return after first match
 
     def clear(self):
         """Remove all items from the legend."""
         for sample, label in self.items:
-            self._removeItemFromLayout(sample, label)
+            self.layout.removeItem(sample)
+            sample.close()
+            self.layout.removeItem(label)
+            label.close()
 
         self.items = []
         self.updateSize()

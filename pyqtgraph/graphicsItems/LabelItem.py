@@ -1,12 +1,12 @@
 from .. import functions as fn
 from .. import getConfigOption
-from ..Qt import QtCore, QtWidgets, QtGui
+from ..Qt import QtCore, QtWidgets
 from .GraphicsWidget import GraphicsWidget
 from .GraphicsWidgetAnchor import GraphicsWidgetAnchor
 
 __all__ = ['LabelItem']
 
-class LabelItem(GraphicsWidgetAnchor, GraphicsWidget):
+class LabelItem(GraphicsWidget, GraphicsWidgetAnchor):
     """
     GraphicsWidget displaying text.
     Used mainly as axis labels, titles, etc.
@@ -55,7 +55,7 @@ class LabelItem(GraphicsWidgetAnchor, GraphicsWidget):
         if color is None:
             color = getConfigOption('foreground')
         color = fn.mkColor(color)
-        optlist.append('color: ' + color.name(QtGui.QColor.NameFormat.HexArgb))
+        optlist.append('color: ' + color.name())
         if 'size' in opts:
             optlist.append('font-size: ' + opts['size'])
         if 'bold' in opts and opts['bold'] in [True, False]:

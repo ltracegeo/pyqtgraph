@@ -35,7 +35,7 @@ def test_signal_proxy_slot(qapp):
     sender = Sender(parent=qapp)
     receiver = Receiver(parent=qapp)
     proxy = SignalProxy(sender.signalSend, delay=0.0, rateLimit=0.6,
-                        slot=receiver.slotReceive, threadSafe=False)
+                        slot=receiver.slotReceive)
 
     assert proxy.blockSignal is False
     assert proxy is not None
@@ -54,7 +54,7 @@ def test_signal_proxy_disconnect_slot(qapp):
     sender = Sender(parent=qapp)
     receiver = Receiver(parent=qapp)
     proxy = SignalProxy(sender.signalSend, delay=0.0, rateLimit=0.6,
-                        slot=receiver.slotReceive, threadSafe=False)
+                        slot=receiver.slotReceive)
 
     assert proxy.blockSignal is False
     assert proxy is not None
@@ -77,8 +77,7 @@ def test_signal_proxy_no_slot_start(qapp):
     """Test the connect mode of SignalProxy without slot at start`"""
     sender = Sender(parent=qapp)
     receiver = Receiver(parent=qapp)
-    proxy = SignalProxy(sender.signalSend, delay=0.0, rateLimit=0.6,
-                        threadSafe=False)
+    proxy = SignalProxy(sender.signalSend, delay=0.0, rateLimit=0.6)
 
     assert proxy.blockSignal is True
     assert proxy is not None
@@ -108,7 +107,7 @@ def test_signal_proxy_slot_block(qapp):
     sender = Sender(parent=qapp)
     receiver = Receiver(parent=qapp)
     proxy = SignalProxy(sender.signalSend, delay=0.0, rateLimit=0.6,
-                        slot=receiver.slotReceive, threadSafe=False)
+                        slot=receiver.slotReceive)
 
     assert proxy.blockSignal is False
     assert proxy is not None

@@ -1,4 +1,4 @@
-from .. import debug
+from .. import debug as debug
 from .. import functions as fn
 from ..Qt import QtCore, QtGui
 from .GraphicsObject import GraphicsObject
@@ -269,7 +269,7 @@ class LinearRegionItem(GraphicsObject):
         return br
         
     def paint(self, p, *args):
-        profiler = debug.Profiler()  # noqa: profiler does prints on GC
+        profiler = debug.Profiler()
         p.setBrush(self.currentBrush)
         p.setPen(fn.mkPen(None))
         p.drawRect(self.boundingRect())

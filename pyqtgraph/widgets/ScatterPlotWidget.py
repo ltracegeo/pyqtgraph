@@ -82,7 +82,7 @@ class ScatterPlotWidget(QtWidgets.QSplitter):
         Set the list of field names/units to be processed.
         
         The format of *fields* is the same as used by 
-        :meth:`~pyqtgraph.widgets.ColorMapWidget.ColorMapParameter.setFields`
+        :func:`ColorMapWidget.setFields <pyqtgraph.widgets.ColorMapWidget.ColorMapParameter.setFields>`
         """
         self.fields = OrderedDict(fields)
         self.mouseOverField = mouseOverField

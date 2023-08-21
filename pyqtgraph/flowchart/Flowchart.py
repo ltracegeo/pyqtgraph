@@ -1,28 +1,32 @@
 __init__ = ["Flowchart", "FlowchartGraphicsItem", "FlowchartNode"]
 
 import importlib
-import os
 from collections import OrderedDict
 
+from .. import DataTreeWidget, FileDialog
+from ..Qt import QT_LIB, QtCore, QtWidgets
+from .Node import Node
+
+FlowchartCtrlTemplate = importlib.import_module(
+    f'.FlowchartCtrlTemplate_{QT_LIB.lower()}', package=__package__)
+    
 from numpy import ndarray
 
-from .. import DataTreeWidget, FileDialog
 from .. import configfile as configfile
 from .. import dockarea as dockarea
 from .. import functions as fn
 from ..debug import printExc
 from ..graphicsItems.GraphicsObject import GraphicsObject
-from ..Qt import QtCore, QtWidgets
-from . import FlowchartCtrlTemplate_generic as FlowchartCtrlTemplate
 from . import FlowchartGraphicsView
 from .library import LIBRARY
-from .Node import Node
 from .Terminal import Terminal
 
 
 def strDict(d):
     return dict([(str(k), v) for k, v in d.items()])
 
+
+        
 
 class Flowchart(Node):
     sigFileLoaded = QtCore.Signal(object)
@@ -111,7 +115,7 @@ class Flowchart(Node):
             opts['multi'] = False
             self.inputNode.sigTerminalAdded.disconnect(self.internalTerminalAdded)
             try:
-                self.inputNode.addTerminal(name, **opts)
+                term2 = self.inputNode.addTerminal(name, **opts)
             finally:
                 self.inputNode.sigTerminalAdded.connect(self.internalTerminalAdded)
                 
@@ -120,7 +124,7 @@ class Flowchart(Node):
             #opts['multi'] = False
             self.outputNode.sigTerminalAdded.disconnect(self.internalTerminalAdded)
             try:
-                self.outputNode.addTerminal(name, **opts)
+                term2 = self.outputNode.addTerminal(name, **opts)
             finally:
                 self.outputNode.sigTerminalAdded.connect(self.internalTerminalAdded)
         return term
@@ -215,8 +219,7 @@ class Flowchart(Node):
     def nodeRenamed(self, node, oldName):
         del self._nodes[oldName]
         self._nodes[node.name()] = node
-        if node is not self.inputNode and node is not self.outputNode:
-            self.widget().nodeRenamed(node, oldName)
+        self.widget().nodeRenamed(node, oldName)
         self.sigChartChanged.emit(self, 'rename', node)
         
     def arrangeNodes(self):
@@ -647,7 +650,8 @@ class FlowchartCtrlWidget(QtWidgets.QWidget):
             
             
     def loadClicked(self):
-        self.chart.loadFile()
+        newFile = self.chart.loadFile()
+        #self.setCurrentFile(newFile)
         
     def fileSaved(self, fileName):
         self.setCurrentFile(fileName)
@@ -667,12 +671,16 @@ class FlowchartCtrlWidget(QtWidgets.QWidget):
     def saveAsClicked(self):
         try:
             if self.currentFileName is None:
-                self.chart.saveFile()
+                newFile = self.chart.saveFile()
             else:
-                self.chart.saveFile(suggestedFileName=self.currentFileName)
+                newFile = self.chart.saveFile(suggestedFileName=self.currentFileName)
+            #self.ui.saveAsBtn.success("Saved.")
+            #print "Back to saveAsClicked."
         except:
             self.ui.saveBtn.failure("Error")
             raise
+            
+        #self.setCurrentFile(newFile)
             
     def setCurrentFile(self, fileName):
         self.currentFileName = fileName
@@ -759,7 +767,10 @@ class FlowchartWidget(dockarea.DockArea):
         self.hoverItem = None
         #self.setMinimumWidth(250)
         #self.setSizePolicy(QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Expanding))
-
+        
+        #self.ui = FlowchartTemplate.Ui_Form()
+        #self.ui.setupUi(self)
+        
         ## build user interface (it was easier to do it here than via developer)
         self.view = FlowchartGraphicsView.FlowchartGraphicsView(self)
         self.viewDock = dockarea.Dock('view', size=(1000,600))

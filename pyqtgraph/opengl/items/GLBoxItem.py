@@ -11,8 +11,8 @@ class GLBoxItem(GLGraphicsItem):
     
     Displays a wire-frame box.
     """
-    def __init__(self, size=None, color=None, glOptions='translucent', parentItem=None):
-        super().__init__(parentItem=parentItem)
+    def __init__(self, size=None, color=None, glOptions='translucent'):
+        GLGraphicsItem.__init__(self)
         if size is None:
             size = QtGui.QVector3D(1,1,1)
         self.setSize(size=size)

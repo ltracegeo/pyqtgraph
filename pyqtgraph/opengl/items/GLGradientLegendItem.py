@@ -10,7 +10,7 @@ class GLGradientLegendItem(GLGraphicsItem):
     Displays legend colorbar on the screen.
     """
 
-    def __init__(self, parentItem=None, **kwds):
+    def __init__(self, **kwds):
         """
         Arguments:
             pos: position of the colorbar on the screen, from the top left corner, in pixels
@@ -24,7 +24,7 @@ class GLGradientLegendItem(GLGraphicsItem):
                 size as percentage
                 legend title
         """
-        super().__init__(parentItem=parentItem)
+        GLGraphicsItem.__init__(self)
         glopts = kwds.pop("glOptions", "additive")
         self.setGLOptions(glopts)
         self.pos = (10, 10)
