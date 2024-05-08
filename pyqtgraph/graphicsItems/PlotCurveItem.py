@@ -268,8 +268,12 @@ class PlotCurveItem(GraphicsObject):
             b = np.percentile(d, [50 * (1 - frac), 50 * (1 + frac)])
 
         ## adjust for fill level
-        if ax == 1 and self.opts['fillLevel'] not in [None, 'enclosed']:
-            b = (min(b[0], self.opts['fillLevel']), max(b[1], self.opts['fillLevel']))
+        fill_level = self.opts['fillLevel']
+        if ax == 1 and fill_level is not None:
+            if isinstance(fill_level, (int, float)):
+                b = (float( min(b[0], fill_level) ), float( max(b[1], fill_level))) # enforce float format for bounds, even if data format is different
+            elif isinstance(fill_level, np.ndarray):
+                b = (float(min(b[0], fill_level.min())), float(max(b[1], fill_level.max())))
 
         ## Add pen width only if it is non-cosmetic.
         pen = self.opts['pen']
@@ -500,7 +504,7 @@ class PlotCurveItem(GraphicsObject):
             if isinstance(data, list):
                 data = np.array(data)
                 kargs[k] = data
-            if not isinstance(data, np.ndarray) or data.ndim > 1:
+            if not isinstance(data, np.ndarray):
                 raise Exception("Plot data must be 1D ndarray.")
             if data.dtype.kind == 'c':
                 raise Exception("Can not plot complex data types.")
@@ -531,7 +535,7 @@ class PlotCurveItem(GraphicsObject):
             if len(self.xData) != len(self.yData)+1:  ## allow difference of 1 for step mode plots
                 raise Exception("len(X) must be len(Y)+1 since stepMode=True (got %s and %s)" % (self.xData.shape, self.yData.shape))
         else:
-            if self.xData.shape != self.yData.shape:  ## allow difference of 1 for step mode plots
+            if self.yData.ndim == 1 and self.xData.shape != self.yData.shape:  ## allow difference of 1 for step mode plots
                 raise Exception("X and Y arrays must be the same shape--got %s and %s." % (self.xData.shape, self.yData.shape))
 
         self.path = None
@@ -596,6 +600,9 @@ class PlotCurveItem(GraphicsObject):
         return x, y
 
     def generatePath(self, x, y):
+        if y.ndim == 2:
+            return [self.generatePath(x, yi) for yi in y]
+
         if self.opts['stepMode']:
             x, y = self._generateStepModeData(
                 self.opts['stepMode'],
@@ -679,17 +686,29 @@ class PlotCurveItem(GraphicsObject):
 
         return segments
 
-    def _getFillPath(self):
-        if self.fillPath is not None:
-            return self.fillPath
-
-        path = QtGui.QPainterPath(self.getPath())
+    def _getFillPath(self, i=None):
+        self_path = self.getPath()
+        p = self_path
+        if isinstance(self_path, list) and i is not None:
+            p = self_path[i]
+        path = QtGui.QPainterPath(p)
         self.fillPath = path
-        if self.opts['fillLevel'] == 'enclosed':
-            return path
+        if i is None:
+            if self.opts['fillLevel'] == 'enclosed':
+                return path
+        else:
+            if self.opts['fillLevel'][i] == 'enclosed':
+                return path
 
-        baseline = self.opts['fillLevel']
+        baseline = None
+        if isinstance(self_path, list) and i is not None:            
+            baseline = self.opts['fillLevel'][i]
+        else:
+            baseline = self.opts['fillLevel']
+
         x, y = self.getData()
+        if i is not None:
+            y = y[i]
         lx, rx = x[[0, -1]]
         ly, ry = y[[0, -1]]
 
@@ -710,11 +729,13 @@ class PlotCurveItem(GraphicsObject):
             and isinstance(self.opts['fillLevel'], (int, float))
         )
 
-    def _getFillPathList(self):
+    def _getFillPathList(self, i=None):
         if self._fillPathList is not None:
             return self._fillPathList
 
         x, y = self.getData()
+        if i is not None:
+            y = y[i]
         if self.opts['stepMode']:
             x, y = self._generateStepModeData(
                 self.opts['stepMode'],
@@ -740,6 +761,8 @@ class PlotCurveItem(GraphicsObject):
         chunksize = 50          # determined empirically
         xybuf = np.empty((chunksize+3, 2))
         baseline = self.opts['fillLevel']
+        if i is not None:
+            baseline = baseline[i]
 
         while offset < len(x) - 1:
             subx = x[offset:offset + chunksize]
@@ -783,15 +806,21 @@ class PlotCurveItem(GraphicsObject):
         do_fill_outline = do_fill and self.opts['fillOutline']
 
         if do_fill:
-            if self._shouldUseFillPathList():
-                paths = self._getFillPathList()
-            else:
-                paths = [self._getFillPath()]
+            y = self.yData
+            fill_paths = [None]
+            if isinstance(y, np.ndarray) and y.ndim > 1:
+                fill_paths = np.arange(y.shape[0])
 
-            profiler('generate fill path')
-            for path in paths:
-                p.fillPath(path, self.opts['brush'])
-            profiler('draw fill path')
+            for fill_path in fill_paths:
+                if self._shouldUseFillPathList():                   
+                    paths = self._getFillPathList(fill_path)
+                else:
+                    paths = [self._getFillPath(fill_path)]
+                profiler('generate fill path')
+                for path in paths:
+                    p.fillPath(path, self.opts['brush'])
+                profiler('draw fill path')
+
 
         # Avoid constructing a shadow pen if it's not used.
         if self.opts.get('shadowPen') is not None:
@@ -810,6 +839,11 @@ class PlotCurveItem(GraphicsObject):
                     if do_fill_outline:
                         p.drawPath(self._getFillPath())
                     else:
+                        path = self.getPath()
+                    if isinstance(path, list):
+                        for ipath in path:
+                            p.drawPath(ipath)
+                    else:
                         p.drawPath(self.getPath())
 
         cp = self.opts['pen']
@@ -825,7 +859,12 @@ class PlotCurveItem(GraphicsObject):
             if do_fill_outline:
                 p.drawPath(self._getFillPath())
             else:
-                p.drawPath(self.getPath())
+                path = self.getPath()
+                if isinstance(path, list):
+                    for ipath in path:
+                        p.drawPath(ipath)  
+                else:
+                    p.drawPath(self.getPath())
         profiler('drawPath')
 
     def paintGL(self, p, opt, widget):
