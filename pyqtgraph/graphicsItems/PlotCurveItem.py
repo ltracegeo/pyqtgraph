@@ -661,12 +661,12 @@ class PlotCurveItem(GraphicsObject):
                     baseline=self.opts['fillLevel']
                 )
 
-        self._renderSegmentList = self._lineSegments.arrayToLineSegments(
-            x,
-            y,
-            connect=self.opts['connect'],
-            finiteCheck=not self.opts['skipFiniteCheck']
-        )
+            self._renderSegmentList = self._lineSegments.arrayToLineSegments(
+                x,
+                y,
+                connect=self.opts['connect'],
+                finiteCheck=not self.opts['skipFiniteCheck']
+            )
 
         return self._renderSegmentList
 
