@@ -728,7 +728,7 @@ class PlotDataItem(GraphicsObject):
                 raise Exception('Invalid data type %s' % type(data))
 
         elif len(args) == 2:
-            seq = ('listOfValues', 'MetaArray', 'empty')
+            seq = ('listOfValues', 'MetaArray', 'empty', '2darray')
             dtyp = dataType(args[0]), dataType(args[1])
             if dtyp[0] not in seq or dtyp[1] not in seq:
                 raise Exception('When passing two unnamed arguments, both must be a list or array of values. (got %s, %s)' % (str(type(args[0])), str(type(args[1]))))
@@ -1208,6 +1208,8 @@ def dataType(obj):
                     return 'recarray'
             elif obj.ndim == 2 and obj.dtype.names is None and obj.shape[1] == 2:
                 return 'Nx2array'
+            elif obj.ndim == 2:
+                return '2darray'
             else:
                 raise Exception('array shape must be (N,) or (N,2); got %s instead' % str(obj.shape))
         elif isinstance(first, dict):
