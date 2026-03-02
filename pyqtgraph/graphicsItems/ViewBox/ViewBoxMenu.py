@@ -21,19 +21,28 @@ class ViewBoxMenu(QtWidgets.QMenu):
         
         self.ctrl = []
         self.widgetGroups = []
+        self._ctrlWidgets = []
+        self._gc_widgets = []
+        self._gc_actions = []
+        self._gc_menus = []
         self.dv = QtGui.QDoubleValidator(self)
         for axis in 'XY':
             m = self.addMenu(f"{axis} {translate('ViewBox', 'axis')}")
+            self._gc_menus.append(m)
+            
             w = QtWidgets.QWidget()
+            self._gc_widgets.append(w)
+            
             ui = ui_template.Ui_Form()
             ui.setupUi(w)
             a = QtWidgets.QWidgetAction(self)
             a.setDefaultWidget(w)
             m.addAction(a)
+            self._gc_actions.append(a)
+            
             self.ctrl.append(ui)
             wg = WidgetGroup(w)
             self.widgetGroups.append(wg)
-            
             connects = [
                 (ui.mouseCheck.toggled, 'MouseToggled'),
                 (ui.manualRadio.clicked, 'ManualClicked'),
@@ -53,8 +62,10 @@ class ViewBoxMenu(QtWidgets.QMenu):
         self.ctrl[1].invertCheck.toggled.connect(self.yInvertToggled)
         
         leftMenu = self.addMenu(translate("ViewBox", "Mouse Mode"))
+        self._gc_menus.append(leftMenu)
 
         group = QtGui.QActionGroup(self)
+        self._gc_action_group = group
         group.triggered.connect(self.setMouseMode)
         pan = QtGui.QAction(translate("ViewBox", "3 button"), group)
         zoom = QtGui.QAction(translate("ViewBox", "1 button"), group)

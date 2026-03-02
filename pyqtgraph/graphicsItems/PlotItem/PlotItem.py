@@ -215,9 +215,9 @@ class PlotItem(GraphicsWidget):
 
         ### Set up context menu
 
-        w = QtWidgets.QWidget()
+        self._ctrlWidget = QtWidgets.QWidget()
         self.ctrl = c = ui_template.Ui_Form()
-        c.setupUi(w)
+        c.setupUi(self._ctrlWidget)
 
         menuItems = [
             (translate("PlotItem", 'Transforms'), c.transformGroup),
@@ -229,16 +229,20 @@ class PlotItem(GraphicsWidget):
         ]
 
         self.ctrlMenu = QtWidgets.QMenu(translate("PlotItem", 'Plot Options'))
+        self._gc_menus = []
+        self._gc_actions = []
 
         for name, grp in menuItems:
             sm = self.ctrlMenu.addMenu(name)
+            self._gc_menus.append(sm)
             act = QtWidgets.QWidgetAction(self)
             act.setDefaultWidget(grp)
             sm.addAction(act)
+            self._gc_actions.append(act)
 
         self.stateGroup = WidgetGroup()
-        for name, w in menuItems:
-            self.stateGroup.autoAdd(w)
+        for name, grp in menuItems:
+            self.stateGroup.autoAdd(grp)
 
         self.fileDialog = None
 
