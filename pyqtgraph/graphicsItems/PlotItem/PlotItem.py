@@ -186,9 +186,9 @@ class PlotItem(GraphicsWidget):
 
         ### Set up context menu
         
-        w = QtWidgets.QWidget()
+        self._ctrlWidget = QtWidgets.QWidget()
         self.ctrl = c = ui_template.Ui_Form()
-        c.setupUi(w)
+        c.setupUi(self._ctrlWidget)
         dv = QtGui.QDoubleValidator(self)
         
         menuItems = [
@@ -200,11 +200,12 @@ class PlotItem(GraphicsWidget):
             (translate("PlotItem", 'Points'), c.pointsGroup),
         ]
         
-        
         self.ctrlMenu = QtWidgets.QMenu()
-        
         self.ctrlMenu.setTitle(translate("PlotItem", 'Plot Options'))
         self.subMenus = []
+        
+        self._gc_actions = [] # Prevent GC sweep of C++ QWidgetActions
+        
         for name, grp in menuItems:
             sm = QtWidgets.QMenu(name)
             act = QtWidgets.QWidgetAction(self)
@@ -212,10 +213,11 @@ class PlotItem(GraphicsWidget):
             sm.addAction(act)
             self.subMenus.append(sm)
             self.ctrlMenu.addMenu(sm)
+            self._gc_actions.append(act)
         
         self.stateGroup = WidgetGroup()
-        for name, w in menuItems:
-            self.stateGroup.autoAdd(w)
+        for name, grp in menuItems:
+            self.stateGroup.autoAdd(grp)
         
         self.fileDialog = None
         

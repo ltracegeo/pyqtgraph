@@ -25,6 +25,10 @@ class ViewBoxMenu(QtWidgets.QMenu):
         self.axes = []
         self.ctrl = []
         self.widgetGroups = []
+        
+        self._gc_actions = []
+        self._gc_widget_groups = []
+        
         self.dv = QtGui.QDoubleValidator(self)
         for axis in 'XY':
             m = QtWidgets.QMenu()
@@ -38,8 +42,12 @@ class ViewBoxMenu(QtWidgets.QMenu):
             self.addMenu(m)
             self.axes.append(m)
             self.ctrl.append(ui)
+            
             wg = WidgetGroup(w)
             self.widgetGroups.append(w)
+            
+            self._gc_actions.append(a) 
+            self._gc_widget_groups.append(wg)
             
             connects = [
                 (ui.mouseCheck.toggled, 'MouseToggled'),
@@ -64,7 +72,7 @@ class ViewBoxMenu(QtWidgets.QMenu):
         #self.addMenu(self.export)
         
         self.leftMenu = QtWidgets.QMenu(translate("ViewBox", "Mouse Mode"))
-        group = QtGui.QActionGroup(self)
+        self._actionGroup = QtGui.QActionGroup(self)
         
         # This does not work! QAction _must_ be initialized with a permanent 
         # object as the parent or else it may be collected prematurely.
@@ -79,8 +87,8 @@ class ViewBoxMenu(QtWidgets.QMenu):
         
         pan.setCheckable(True)
         zoom.setCheckable(True)
-        pan.setActionGroup(group)
-        zoom.setActionGroup(group)
+        pan.setActionGroup(self._actionGroup)
+        zoom.setActionGroup(self._actionGroup)
         self.mouseModes = [pan, zoom]
         self.addMenu(self.leftMenu)
         
