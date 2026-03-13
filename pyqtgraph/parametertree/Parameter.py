@@ -1,10 +1,11 @@
+import gc
 import re
 import warnings
 import weakref
 from collections import OrderedDict
 
 from .. import functions as fn
-from ..Qt import QtCore
+from ..Qt import QtCore, untrack_if_broken
 from .ParameterItem import ParameterItem
 
 PARAM_TYPES = {}
@@ -181,58 +182,65 @@ class Parameter(QtCore.QObject):
         """
         
         
-        QtCore.QObject.__init__(self)
-        
-        self.opts = {
-            'type': None,
-            'readonly': False,
-            'visible': True,
-            'enabled': True,
-            'renamable': False,
-            'removable': False,
-            'strictNaming': False,  # forces name to be usable as a python variable
-            'expanded': True,
-            'syncExpanded': False,
-            'title': None,
-            #'limits': None,  ## This is a bad plan--each parameter type may have a different data type for limits.
-        }
-        value = opts.get('value', None)
-        name = opts.get('name', None)
-        self.opts.update(opts)
-        self.opts['value'] = None  # will be set later.
-        self.opts['name'] = None
-        
-        self.childs = []
-        self.names = {}   ## map name:child
-        self.items = weakref.WeakKeyDictionary()  ## keeps track of tree items representing this parameter
-        self._parent = None
-        self.treeStateChanges = []  ## cache of tree state changes to be delivered on next emit
-        self.blockTreeChangeEmit = 0
-        #self.monitoringChildren = False  ## prevent calling monitorChildren more than once
-        
-        if not isinstance(name, str):
-            raise Exception("Parameter must have a string name specified in opts.")
-        self.setName(name)
-        
-        self.addChildren(self.opts.pop('children', []))
-        
-        if value is not None:
-            self.setValue(value)
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            QtCore.QObject.__init__(self)
+            untrack_if_broken(self)
+            
+            self.opts = {
+                'type': None,
+                'readonly': False,
+                'visible': True,
+                'enabled': True,
+                'renamable': False,
+                'removable': False,
+                'strictNaming': False,  # forces name to be usable as a python variable
+                'expanded': True,
+                'syncExpanded': False,
+                'title': None,
+                #'limits': None,  ## This is a bad plan--each parameter type may have a different data type for limits.
+            }
+            value = opts.get('value', None)
+            name = opts.get('name', None)
+            self.opts.update(opts)
+            self.opts['value'] = None  # will be set later.
+            self.opts['name'] = None
+            
+            self.childs = []
+            self.names = {}   ## map name:child
+            self.items = weakref.WeakKeyDictionary()  ## keeps track of tree items representing this parameter
+            self._parent = None
+            self.treeStateChanges = []  ## cache of tree state changes to be delivered on next emit
+            self.blockTreeChangeEmit = 0
+            #self.monitoringChildren = False  ## prevent calling monitorChildren more than once
+            
+            if not isinstance(name, str):
+                raise Exception("Parameter must have a string name specified in opts.")
+            self.setName(name)
+            
+            self.addChildren(self.opts.pop('children', []))
+            
+            if value is not None:
+                self.setValue(value)
 
-        if 'default' not in self.opts:
-            self.opts['default'] = None
-            self.setDefault(self.opts['value'])
-    
-        ## Connect all state changed signals to the general sigStateChanged
-        self.sigValueChanged.connect(self._emitValueChanged)
-        self.sigChildAdded.connect(self._emitChildAddedChanged)
-        self.sigChildRemoved.connect(self._emitChildRemovedChanged)
-        self.sigParentChanged.connect(self._emitParentChanged)
-        self.sigLimitsChanged.connect(self._emitLimitsChanged)
-        self.sigDefaultChanged.connect(self._emitDefaultChanged)
-        self.sigNameChanged.connect(self._emitNameChanged)
-        self.sigOptionsChanged.connect(self._emitOptionsChanged)
-        self.sigContextMenu.connect(self._emitContextMenuChanged)
+            if 'default' not in self.opts:
+                self.opts['default'] = None
+                self.setDefault(self.opts['value'])
+        
+            ## Connect all state changed signals to the general sigStateChanged
+            self.sigValueChanged.connect(self._emitValueChanged)
+            self.sigChildAdded.connect(self._emitChildAddedChanged)
+            self.sigChildRemoved.connect(self._emitChildRemovedChanged)
+            self.sigParentChanged.connect(self._emitParentChanged)
+            self.sigLimitsChanged.connect(self._emitLimitsChanged)
+            self.sigDefaultChanged.connect(self._emitDefaultChanged)
+            self.sigNameChanged.connect(self._emitNameChanged)
+            self.sigOptionsChanged.connect(self._emitOptionsChanged)
+            self.sigContextMenu.connect(self._emitContextMenuChanged)
+        finally:
+            if was_enabled:
+                gc.enable()
 
         
         #self.watchParam(self)  ## emit treechange signals if our own state changes

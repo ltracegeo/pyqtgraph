@@ -3,7 +3,7 @@ from time import perf_counter
 
 from . import ThreadsafeTimer
 from .functions import SignalBlock
-from .Qt import QtCore
+from .Qt import QtCore, untrack_if_broken
 
 __all__ = ['SignalProxy']
 
@@ -30,6 +30,7 @@ class SignalProxy(QtCore.QObject):
         """
 
         QtCore.QObject.__init__(self)
+        untrack_if_broken(self)
         self.delay = delay
         self.rateLimit = rateLimit
         self.args = None
@@ -83,13 +84,14 @@ class SignalProxy(QtCore.QObject):
         self.blockSignal = True
         try:
             self.signal.disconnect(self.signalReceived)
-        except:
+        except (AttributeError, RuntimeError, TypeError):
             pass
         try:
-            # XXX: This is a weakref, however segfaulting on PySide and
-            # Python 2. We come back later
-            self.sigDelayed.disconnect(self.slot)
-        except:
+            if self.slot is not None:
+                s = self.slot()
+                if s is not None:
+                    self.sigDelayed.disconnect(s)
+        except (AttributeError, RuntimeError, TypeError):
             pass
         finally:
             self.slot = None
@@ -106,3 +108,9 @@ class SignalProxy(QtCore.QObject):
         this proxy.
         """
         return SignalBlock(self.signal, self.signalReceived)
+
+    def __del__(self):
+        try:
+            self.disconnect()
+        except (AttributeError, RuntimeError, TypeError):
+            pass

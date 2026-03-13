@@ -1,5 +1,7 @@
+import gc
 import itertools
 import math
+import sys
 import warnings
 import weakref
 from collections import OrderedDict
@@ -147,24 +149,46 @@ class PixmapFragments:
         self.alloc(0)
 
     def alloc(self, size):
-        # The C++ native API is:
-        #   drawPixmapFragments(const PixmapFragment *fragments, int fragmentCount,
-        #                       const QPixmap &pixmap)
-        #
-        # PySide exposes this API whereas PyQt wraps it to be more Pythonic.
-        # In PyQt, a Python list of PixmapFragment instances needs to be provided.
-        # This is inefficient because:
-        # 1) constructing the Python list involves calling sip.wrapinstance multiple times.
-        #    - this is mitigated here by reusing the instance pointers
-        # 2) PyQt will anyway deconstruct the Python list and repack the PixmapFragment
-        #    instances into a contiguous array, in order to call the underlying C++ native API.
-        self.arr = np.empty((size, 10), dtype=np.float64)
-        if QT_LIB.startswith('PyQt'):
-            self.ptrs = list(map(Qt.sip.wrapinstance,
-                itertools.count(self.arr.ctypes.data, self.arr.strides[0]),
-                itertools.repeat(QtGui.QPainter.PixmapFragment, self.arr.shape[0])))
-        else:
-            self.ptrs = Qt.shiboken.wrapInstance(self.arr.ctypes.data, QtGui.QPainter.PixmapFragment)
+        # Clear old references first
+        self.ptrs = []
+        self.arr = None
+        self.ref_holder = None
+
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            # The C++ native API is:
+            #   drawPixmapFragments(const PixmapFragment *fragments, int fragmentCount,
+            #                       const QPixmap &pixmap)
+            #
+            # PySide exposes this API whereas PyQt wraps it to be more Pythonic.
+            # In PyQt, a Python list of PixmapFragment instances needs to be provided.
+            # This is inefficient because:
+            # 1) constructing the Python list involves calling sip.wrapinstance multiple times.
+            #    - this is mitigated here by reusing the instance pointers
+            # 2) PyQt will anyway deconstruct the Python list and repack the PixmapFragment
+            #    instances into a contiguous array, in order to call the underlying C++ native API.
+            arr = np.empty((size, 10), dtype=np.float64)
+            if QT_LIB.startswith('PyQt'):
+                ptrs = list(map(Qt.sip.wrapinstance,
+                    itertools.count(arr.ctypes.data, arr.strides[0]),
+                    itertools.repeat(QtGui.QPainter.PixmapFragment, arr.shape[0])))
+                # Ensure array is kept alive as long as wrappers exist
+                self.ref_holder = (ptrs, arr)
+            else:
+                ptrs = Qt.shiboken.wrapInstance(arr.ctypes.data, QtGui.QPainter.PixmapFragment)
+                
+                # Shiboken wrapper can hold a direct attribute reference
+                try:
+                    ptrs._array_ref = arr
+                except AttributeError:
+                    # In case the wrapper doesn't allow attributes, use the tuple holder
+                    self.ref_holder = (ptrs, arr)
+            self.arr = arr
+            self.ptrs = ptrs
+        finally:
+            if was_enabled:
+                gc.enable()
 
     def array(self, size):
         if size > self.arr.shape[0]:

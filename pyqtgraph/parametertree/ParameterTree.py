@@ -1,5 +1,6 @@
+import gc
 from .parameterTypes import GroupParameterItem
-from ..Qt import QtCore, QtWidgets, mkQApp
+from ..Qt import QtCore, QtWidgets, mkQApp, untrack_if_broken
 from ..widgets.TreeWidget import TreeWidget
 from .ParameterItem import ParameterItem
 
@@ -15,24 +16,32 @@ class ParameterTree(TreeWidget):
         showHeader     (bool) If True, then the QTreeView header is displayed.
         ============== ========================================================
         """
-        TreeWidget.__init__(self, parent)
-        self.setVerticalScrollMode(self.ScrollMode.ScrollPerPixel)
-        self.setHorizontalScrollMode(self.ScrollMode.ScrollPerPixel)
-        self.setAnimated(False)
-        self.setColumnCount(2)
-        self.setHeaderLabels(["Parameter", "Value"])
-        self.setAlternatingRowColors(True)
-        self.paramSet = None
-        self.header().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        self.setHeaderHidden(not showHeader)
-        self.itemChanged.connect(self.itemChangedEvent)
-        self.itemExpanded.connect(self.itemExpandedEvent)
-        self.itemCollapsed.connect(self.itemCollapsedEvent)
-        self.lastSel = None
-        self.setRootIsDecorated(False)
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            TreeWidget.__init__(self, parent)
+            untrack_if_broken(self)
+            
+            self.setVerticalScrollMode(self.ScrollMode.ScrollPerPixel)
+            self.setHorizontalScrollMode(self.ScrollMode.ScrollPerPixel)
+            self.setAnimated(False)
+            self.setColumnCount(2)
+            self.setHeaderLabels(["Parameter", "Value"])
+            self.setAlternatingRowColors(True)
+            self.paramSet = None
+            self.header().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+            self.setHeaderHidden(not showHeader)
+            self.itemChanged.connect(self.itemChangedEvent)
+            self.itemExpanded.connect(self.itemExpandedEvent)
+            self.itemCollapsed.connect(self.itemCollapsedEvent)
+            self.lastSel = None
+            self.setRootIsDecorated(False)
 
-        app = mkQApp()
-        app.paletteChanged.connect(self.updatePalette)
+            app = mkQApp()
+            app.paletteChanged.connect(self.updatePalette)
+        finally:
+            if was_enabled:
+                gc.enable()
 
     def setParameters(self, param, showTop=True):
         """

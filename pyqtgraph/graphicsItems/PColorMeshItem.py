@@ -1,4 +1,6 @@
+import gc
 import itertools
+import sys
 import warnings
 
 import numpy as np
@@ -23,24 +25,37 @@ class QuadInstances:
         self.polys = []
 
     def alloc(self, size):
+        # Clear old references first
         self.polys.clear()
+        self.arr = None
+        self.ref_holder = None
 
-        # 2 * (size + 1) vertices, (x, y)
-        arr = np.empty((2 * (size + 1), 2), dtype=np.float64)
-        ptrs = list(map(wrapinstance,
-            itertools.count(arr.ctypes.data, arr.strides[0]),
-            itertools.repeat(QtCore.QPointF, arr.shape[0])))
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            # 2 * (size + 1) vertices, (x, y)
+            arr = np.empty((2 * (size + 1), 2), dtype=np.float64)
+            ptrs = list(map(wrapinstance,
+                itertools.count(arr.ctypes.data, arr.strides[0]),
+                itertools.repeat(QtCore.QPointF, arr.shape[0])))
 
-        # arrange into 2 rows, (size + 1) vertices
-        points = [ptrs[:len(ptrs)//2], ptrs[len(ptrs)//2:]]
-        self.arr = arr.reshape((2, -1, 2))
+            # arrange into 2 rows, (size + 1) vertices
+            points = [ptrs[:len(ptrs)//2], ptrs[len(ptrs)//2:]]
+            self.arr = arr.reshape((2, -1, 2))
+            
+            # Ensure array is kept alive as long as wrappers exist
+            self.ref_holder = (ptrs, arr)
 
-        # pre-create quads from those 2 rows of QPointF(s)
-        for j in range(size):
-            bl, tl = points[0][j:j+2]
-            br, tr = points[1][j:j+2]
-            poly = (bl, br, tr, tl)
-            self.polys.append(poly)
+            # pre-create quads from those 2 rows of QPointF(s)
+            for j in range(size):
+                bl, tl = points[0][j:j+2]
+                br, tr = points[1][j:j+2]
+                poly = (bl, br, tr, tl)
+                self.polys.append(poly)
+        finally:
+            if was_enabled:
+                gc.enable()
+
 
     def array(self, size):
         if size != len(self.polys):

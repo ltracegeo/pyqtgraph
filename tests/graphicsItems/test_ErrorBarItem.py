@@ -27,7 +27,8 @@ def test_ErrorBarItem_defer_data():
     assert r_no_ebi.height() == r_empty_ebi.height()
 
     err.setData(x=x, y=x, bottom=x, top=x)
-    app.processEvents()
+    # force auto-range update
+    plot.autoRange()
     app.processEvents()
     r_ebi = plot.viewRect()
 
@@ -35,7 +36,7 @@ def test_ErrorBarItem_defer_data():
 
     # unset data, ErrorBarItem disappears and view rect goes back to original
     err.setData(x=None, y=None)
-    app.processEvents()
+    plot.autoRange()
     app.processEvents()
     r_clear_ebi = plot.viewRect()
 

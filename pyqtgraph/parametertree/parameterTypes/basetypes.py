@@ -1,10 +1,11 @@
 import builtins
+import gc
 
 from ..Parameter import Parameter
 from ..ParameterItem import ParameterItem
 from ... import functions as fn
 from ... import icons
-from ...Qt import QtCore, QtGui, QtWidgets, mkQApp
+from ...Qt import QtCore, QtGui, QtWidgets, mkQApp, untrack_if_broken
 
 
 class WidgetParameterItem(ParameterItem):
@@ -240,9 +241,16 @@ class WidgetParameterItem(ParameterItem):
 
 class EventProxy(QtCore.QObject):
     def __init__(self, qobj, callback):
-        QtCore.QObject.__init__(self)
-        self.callback = callback
-        qobj.installEventFilter(self)
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            QtCore.QObject.__init__(self)
+            untrack_if_broken(self)
+            self.callback = callback
+            qobj.installEventFilter(self)
+        finally:
+            if was_enabled:
+                gc.enable()
 
     def eventFilter(self, obj, ev):
         return self.callback(obj, ev)
@@ -441,3 +449,13 @@ class Emitter(QtCore.QObject):
     """
     sigChanging = QtCore.Signal(object, object)
     sigChanged = QtCore.Signal(object, object)
+
+    def __init__(self):
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            QtCore.QObject.__init__(self)
+            untrack_if_broken(self)
+        finally:
+            if was_enabled:
+                gc.enable()

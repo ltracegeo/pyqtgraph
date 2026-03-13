@@ -5,7 +5,7 @@ from time import perf_counter, perf_counter_ns
 from .. import debug as debug
 from .. import getConfigOption
 from ..Point import Point
-from ..Qt import QT_LIB, QtCore, QtGui, QtWidgets, isQObjectAlive
+from ..Qt import QT_LIB, QtCore, QtGui, QtWidgets, isQObjectAlive, untrack_if_broken
 from .mouseEvents import HoverEvent, MouseClickEvent, MouseDragEvent
 
 getMillis = lambda: perf_counter_ns() // 10 ** 6

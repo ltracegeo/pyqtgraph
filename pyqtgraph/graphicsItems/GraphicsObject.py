@@ -1,3 +1,4 @@
+import gc
 from ..Qt import QT_LIB, QtWidgets
 
 if QT_LIB.startswith('PyQt'):
@@ -15,9 +16,16 @@ class GraphicsObject(GraphicsItem, QtWidgets.QGraphicsObject):
     _qtBaseClass = QtWidgets.QGraphicsObject
     def __init__(self, *args):
         self.__inform_view_on_changes = True
-        QtWidgets.QGraphicsObject.__init__(self, *args)
-        self.setFlag(self.GraphicsItemFlag.ItemSendsGeometryChanges)
-        GraphicsItem.__init__(self)
+        
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            QtWidgets.QGraphicsObject.__init__(self, *args)
+            self.setFlag(self.GraphicsItemFlag.ItemSendsGeometryChanges)
+            GraphicsItem.__init__(self)
+        finally:
+            if was_enabled:
+                gc.enable()
         
     def itemChange(self, change, value):
         ret = super().itemChange(change, value)

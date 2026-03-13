@@ -321,7 +321,7 @@ def cleanup():
                         'are properly called before app shutdown (%s)\n' % (o,))
                 
                 s.addItem(o)
-        except (RuntimeError, ReferenceError):  ## occurs if a python wrapper no longer has its underlying C++ object
+        except (RuntimeError, ReferenceError, TypeError, AttributeError):  ## occurs if a python wrapper no longer has its underlying C++ object
             continue
     _cleanupCalled = True
 

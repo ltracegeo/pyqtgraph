@@ -8,7 +8,7 @@ from math import hypot
 from .. import functions as fn
 from ..GraphicsScene import GraphicsScene
 from ..Point import Point
-from ..Qt import QtCore, QtWidgets, isQObjectAlive
+from ..Qt import QtCore, QtWidgets, isQObjectAlive, untrack_if_broken
 
 __all__ = ['GraphicsItem']
 
@@ -49,6 +49,7 @@ class GraphicsItem(object):
     _pixelVectorGlobalCache = LRU(100)
 
     def __init__(self, register=None):
+        untrack_if_broken(self)
         if not hasattr(self, '_qtBaseClass'):
             for b in self.__class__.__bases__:
                 if issubclass(b, QtWidgets.QGraphicsItem):

@@ -1,4 +1,5 @@
 import collections.abc
+import gc
 import importlib
 import os
 import warnings
@@ -111,43 +112,48 @@ class PlotItem(GraphicsWidget):
                         and the values must be instances of AxisItem (or at least compatible with AxisItem).
         ==============  ==========================================================================================
         """
-        
-        GraphicsWidget.__init__(self, parent)
-        
-        self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
-        
-        ## Set up control buttons
-        path = os.path.dirname(__file__)
-        self.autoBtn = ButtonItem(icons.getGraphPixmap('auto'), 14, self)
-        self.autoBtn.mode = 'auto'
-        self.autoBtn.clicked.connect(self.autoBtnClicked)
-        self.buttonsHidden = False ## whether the user has requested buttons to be hidden
-        self.mouseHovering = False
-        
-        self.layout = QtWidgets.QGraphicsGridLayout()
-        self.layout.setContentsMargins(1,1,1,1)
-        self.setLayout(self.layout)
-        self.layout.setHorizontalSpacing(0)
-        self.layout.setVerticalSpacing(0)
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            GraphicsWidget.__init__(self, parent)
+            
+            self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
+            
+            ## Set up control buttons
+            path = os.path.dirname(__file__)
+            self.autoBtn = ButtonItem(icons.getGraphPixmap('auto'), 14, self)
+            self.autoBtn.mode = 'auto'
+            self.autoBtn.clicked.connect(self.autoBtnClicked)
+            self.buttonsHidden = False ## whether the user has requested buttons to be hidden
+            self.mouseHovering = False
+            
+            self.layout = QtWidgets.QGraphicsGridLayout()
+            self.layout.setContentsMargins(1,1,1,1)
+            self.setLayout(self.layout)
+            self.layout.setHorizontalSpacing(0)
+            self.layout.setVerticalSpacing(0)
 
-        if viewBox is None:
-            viewBox = ViewBox(parent=self, enableMenu=enableMenu)
-        self.vb = viewBox
-        self.vb.sigStateChanged.connect(self.viewStateChanged)
+            if viewBox is None:
+                viewBox = ViewBox(parent=self, enableMenu=enableMenu)
+            self.vb = viewBox
+            self.vb.sigStateChanged.connect(self.viewStateChanged)
 
-        # Enable or disable plotItem menu
-        self.setMenuEnabled(enableMenu, None)
-        
-        if name is not None:
-            self.vb.register(name)
-        self.vb.sigRangeChanged.connect(self.sigRangeChanged)
-        self.vb.sigXRangeChanged.connect(self.sigXRangeChanged)
-        self.vb.sigYRangeChanged.connect(self.sigYRangeChanged)
-        
-        self.layout.addItem(self.vb, 2, 1)
-        self.alpha = 1.0
-        self.autoAlpha = True
-        self.spectrumMode = False
+            # Enable or disable plotItem menu
+            self.setMenuEnabled(enableMenu, None)
+            
+            if name is not None:
+                self.vb.register(name)
+            self.vb.sigRangeChanged.connect(self.sigRangeChanged)
+            self.vb.sigXRangeChanged.connect(self.sigXRangeChanged)
+            self.vb.sigYRangeChanged.connect(self.sigYRangeChanged)
+            
+            self.layout.addItem(self.vb, 2, 1)
+            self.alpha = 1.0
+            self.autoAlpha = True
+            self.spectrumMode = False
+        finally:
+            if was_enabled:
+                gc.enable()
         
         self.legend = None
         

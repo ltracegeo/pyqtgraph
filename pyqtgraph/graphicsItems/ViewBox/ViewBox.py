@@ -1,3 +1,4 @@
+import gc
 import math
 import sys
 import weakref
@@ -131,111 +132,120 @@ class ViewBox(GraphicsWidget):
         =================  =============================================================
         """
 
-        GraphicsWidget.__init__(self, parent)
-        self.name = None
-        self.linksBlocked = False
-        self.addedItems = []
-        self._matrixNeedsUpdate = True  ## indicates that range has changed, but matrix update was deferred
-        self._autoRangeNeedsUpdate = True ## indicates auto-range needs to be recomputed.
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            GraphicsWidget.__init__(self, parent)
+            self.name = None
+            self.linksBlocked = False
+            self.addedItems = []
+            self._matrixNeedsUpdate = True  ## indicates that range has changed, but matrix update was deferred
+            self._autoRangeNeedsUpdate = True ## indicates auto-range needs to be recomputed.
 
-        self._lastScene = None  ## stores reference to the last known scene this view was a part of.
+            self._lastScene = None  ## stores reference to the last known scene this view was a part of.
 
-        self.state = {
+            self.state = {
 
-            ## separating targetRange and viewRange allows the view to be resized
-            ## while keeping all previously viewed contents visible
-            'targetRange': [[0,1], [0,1]],   ## child coord. range visible [[xmin, xmax], [ymin, ymax]]
-            'viewRange': [[0,1], [0,1]],     ## actual range viewed
+                ## separating targetRange and viewRange allows the view to be resized
+                ## while keeping all previously viewed contents visible
+                'targetRange': [[0,1], [0,1]],   ## child coord. range visible [[xmin, xmax], [ymin, ymax]]
+                'viewRange': [[0,1], [0,1]],     ## actual range viewed
 
-            'yInverted': invertY,
-            'xInverted': invertX,
-            'aspectLocked': False,    ## False if aspect is unlocked, otherwise float specifies the locked ratio.
-            'autoRange': [True, True],  ## False if auto range is disabled,
-                                        ## otherwise float gives the fraction of data that is visible
-            'autoPan': [False, False],         ## whether to only pan (do not change scaling) when auto-range is enabled
-            'autoVisibleOnly': [False, False], ## whether to auto-range only to the visible portion of a plot
-            'linkedViews': [None, None],  ## may be None, "viewName", or weakref.ref(view)
-                                          ## a name string indicates that the view *should* link to another, but no view with that name exists yet.
-            'defaultPadding': defaultPadding,
+                'yInverted': invertY,
+                'xInverted': invertX,
+                'aspectLocked': False,    ## False if aspect is unlocked, otherwise float specifies the locked ratio.
+                'autoRange': [True, True],  ## False if auto range is disabled,
+                                            ## otherwise float gives the fraction of data that is visible
+                'autoPan': [False, False],         ## whether to only pan (do not change scaling) when auto-range is enabled
+                'autoVisibleOnly': [False, False], ## whether to auto-range only to the visible portion of a plot
+                'linkedViews': [None, None],  ## may be None, "viewName", or weakref.ref(view)
+                                            ## a name string indicates that the view *should* link to another, but no view with that name exists yet.
+                'defaultPadding': defaultPadding,
 
-            'mouseEnabled': [enableMouse, enableMouse],
-            'mouseMode': ViewBox.PanMode if getConfigOption('leftButtonPan') else ViewBox.RectMode,
-            'enableMenu': enableMenu,
-            'wheelScaleFactor': -1.0 / 8.0,
+                'mouseEnabled': [enableMouse, enableMouse],
+                'mouseMode': ViewBox.PanMode if getConfigOption('leftButtonPan') else ViewBox.RectMode,
+                'enableMenu': enableMenu,
+                'wheelScaleFactor': -1.0 / 8.0,
 
-            'background': None,
-            
-            'logMode': [False, False],
+                'background': None,
+                
+                'logMode': [False, False],
 
-            # Limits
-            # maximum value of double float is 1.7E+308, but internal caluclations exceed this limit before the range reaches it.
-            'limits': { 
-                'xLimits': [-1E307, +1E307],   # Maximum and minimum visible X values
-                'yLimits': [-1E307, +1E307],   # Maximum and minimum visible Y values
-                'xRange': [None, None],   # Maximum and minimum X range
-                'yRange': [None, None],   # Maximum and minimum Y range
-                }
+                # Limits
+                # maximum value of double float is 1.7E+308, but internal caluclations exceed this limit before the range reaches it.
+                'limits': { 
+                    'xLimits': [-1E307, +1E307],   # Maximum and minimum visible X values
+                    'yLimits': [-1E307, +1E307],   # Maximum and minimum visible Y values
+                    'xRange': [None, None],   # Maximum and minimum X range
+                    'yRange': [None, None],   # Maximum and minimum Y range
+                    }
 
-        }
-        self._updatingRange = False  ## Used to break recursive loops. See updateAutoRange.
-        self._itemBoundsCache = weakref.WeakKeyDictionary()
+            }
+            self._updatingRange = False  ## Used to break recursive loops. See updateAutoRange.
+            self._itemBoundsCache = weakref.WeakKeyDictionary()
 
-        self.locateGroup = None  ## items displayed when using ViewBox.locate(item)
+            self.locateGroup = None  ## items displayed when using ViewBox.locate(item)
 
-        self.setFlag(self.GraphicsItemFlag.ItemClipsChildrenToShape)
-        self.setFlag(self.GraphicsItemFlag.ItemIsFocusable, True)  ## so we can receive key presses
+            self.setFlag(self.GraphicsItemFlag.ItemClipsChildrenToShape)
+            self.setFlag(self.GraphicsItemFlag.ItemIsFocusable, True)  ## so we can receive key presses
 
-        ## childGroup is required so that ViewBox has local coordinates similar to device coordinates.
-        ## this is a workaround for a Qt + OpenGL bug that causes improper clipping
-        ## https://bugreports.qt.nokia.com/browse/QTBUG-23723
-        self.childGroup = ChildGroup(self)
-        self.childGroup.itemsChangedListeners.append(self)
+            ## childGroup is required so that ViewBox has local coordinates similar to device coordinates.
+            ## this is a workaround for a Qt + OpenGL bug that causes improper clipping
+            ## https://bugreports.qt.nokia.com/browse/QTBUG-23723
+            self.childGroup = ChildGroup(self)
+            self.childGroup.itemsChangedListeners.append(self)
 
-        self.background = QtWidgets.QGraphicsRectItem(self.rect())
-        self.background.setParentItem(self)
-        self.background.setZValue(-1e6)
-        self.background.setPen(fn.mkPen(None))
-        self.updateBackground()
+            self.background = QtWidgets.QGraphicsRectItem(self.rect())
+            self.background.setParentItem(self)
+            self.background.setZValue(-1e6)
+            self.background.setPen(fn.mkPen(None))
+            self.updateBackground()
 
-        self.border = fn.mkPen(border)
+            self.border = fn.mkPen(border)
 
-        self.borderRect = QtWidgets.QGraphicsRectItem(self.rect())
-        self.borderRect.setParentItem(self)
-        self.borderRect.setZValue(1e3)
-        self.borderRect.setPen(self.border)
+            self.borderRect = QtWidgets.QGraphicsRectItem(self.rect())
+            self.borderRect.setParentItem(self)
+            self.borderRect.setZValue(1e3)
+            self.borderRect.setPen(self.border)
 
-        ## Make scale box that is shown when dragging on the view
-        self.rbScaleBox = QtWidgets.QGraphicsRectItem(0, 0, 1, 1)
-        self.rbScaleBox.setPen(fn.mkPen((255,255,100), width=1))
-        self.rbScaleBox.setBrush(fn.mkBrush(255,255,0,100))
-        self.rbScaleBox.setZValue(1e9)
-        self.rbScaleBox.hide()
-        self.addItem(self.rbScaleBox, ignoreBounds=True)
+            ## Make scale box that is shown when dragging on the view
+            self.rbScaleBox = QtWidgets.QGraphicsRectItem(0, 0, 1, 1)
+            self.rbScaleBox.setPen(fn.mkPen((255,255,100), width=1))
+            self.rbScaleBox.setBrush(fn.mkBrush(255,255,0,100))
+            self.rbScaleBox.setZValue(1e9)
+            self.rbScaleBox.hide()
+            self.addItem(self.rbScaleBox, ignoreBounds=True)
 
-        ## show target rect for debugging
-        self.target = QtWidgets.QGraphicsRectItem(0, 0, 1, 1)
-        self.target.setPen(fn.mkPen('r'))
-        self.target.setParentItem(self)
-        self.target.hide()
+            ## show target rect for debugging
+            self.target = QtWidgets.QGraphicsRectItem(0, 0, 1, 1)
+            self.target.setPen(fn.mkPen('r'))
+            self.target.setParentItem(self)
+            self.target.hide()
 
-        self.axHistory = [] # maintain a history of zoom locations
-        self.axHistoryPointer = -1 # pointer into the history. Allows forward/backward movement, not just "undo"
+            self.axHistory = [] # maintain a history of zoom locations
+            self.axHistoryPointer = -1 # pointer into the history. Allows forward/backward movement, not just "undo"
 
-        self.setZValue(-100)
-        self.setSizePolicy(QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding))
+            self.setZValue(-100)
+            self.setSizePolicy(QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding))
 
-        self.setAspectLocked(lockAspect)
+            self.setAspectLocked(lockAspect)
 
-        if enableMenu:
-            self.menu = ViewBoxMenu(self)
-        else:
-            self.menu = None
+            if enableMenu:
+                self.menu = ViewBoxMenu(self)
+            else:
+                self.menu = None
 
-        self.register(name)
-        if name is None:
-            self.updateViewLists()
+            self.register(name)
+            if name is None:
+                self.updateViewLists()
 
-        self._viewPixelSizeCache  = None
+            self._viewPixelSizeCache  = None
+        except Exception:
+            import logging
+            logging.exception("Failure durint ViewBox constructor.")
+        finally:
+            if was_enabled:
+                gc.enable()
 
     def getAspectRatio(self):
         '''return the current aspect ratio'''

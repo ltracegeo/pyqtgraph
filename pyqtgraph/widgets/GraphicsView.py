@@ -4,11 +4,12 @@ Copyright 2010  Luke Campagnola
 Distributed under MIT/X11 license. See license.txt for more information.
 """
 
+import gc
 from .. import functions as fn
 from .. import getConfigOption
 from ..GraphicsScene import GraphicsScene
 from ..Point import Point
-from ..Qt import QT_LIB, QtCore, QtGui, QtWidgets
+from ..Qt import QT_LIB, QtCore, QtGui, QtWidgets, untrack_if_broken
 
 __all__ = ['GraphicsView']
 
@@ -55,67 +56,73 @@ class GraphicsView(QtWidgets.QGraphicsView):
                         :func:`setConfigOptions <pyqtgraph.setConfigOptions>`).
         ==============  ============================================================
         """
-        
-        self.closed = False
-        
-        QtWidgets.QGraphicsView.__init__(self, parent)
-        
-        # This connects a cleanup function to QApplication.aboutToQuit. It is
-        # called from here because we have no good way to react when the
-        # QApplication is created by the user.
-        # See pyqtgraph.__init__.py
-        from .. import _connectCleanup
-        _connectCleanup()
-        
-        if useOpenGL is None:
-            useOpenGL = getConfigOption('useOpenGL')
-        
-        self.useOpenGL(useOpenGL)
-        self.setCacheMode(self.CacheModeFlag.CacheBackground)
-        
-        ## This might help, but it's probably dangerous in the general case..
-        #self.setOptimizationFlag(self.DontSavePainterState, True)
-        
-        self.setBackgroundRole(QtGui.QPalette.ColorRole.NoRole)
-        self.setBackground(background)
-        
-        self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
-        self.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
-        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setTransformationAnchor(QtWidgets.QGraphicsView.ViewportAnchor.NoAnchor)
-        self.setResizeAnchor(QtWidgets.QGraphicsView.ViewportAnchor.AnchorViewCenter)
-        self.setViewportUpdateMode(QtWidgets.QGraphicsView.ViewportUpdateMode.MinimalViewportUpdate)
-        
-        
-        self.lockedViewports = []
-        self.lastMousePos = None
-        self.setMouseTracking(True)
-        self.aspectLocked = False
-        self.range = QtCore.QRectF(0, 0, 1, 1)
-        self.autoPixelRange = True
-        self.currentItem = None
-        self.clearMouse()
-        self.updateMatrix()
-        # GraphicsScene must have parent or expect crashes!
-        self.sceneObj = GraphicsScene(parent=self)
-        self.setScene(self.sceneObj)
-        
-        ## Workaround for PySide crash
-        ## This ensures that the scene will outlive the view.
-        if QT_LIB == 'PySide':
-            self.sceneObj._view_ref_workaround = self
-        
-        ## by default we set up a central widget with a grid layout.
-        ## this can be replaced if needed.
-        self.centralWidget = None
-        self.setCentralItem(QtWidgets.QGraphicsWidget())
-        self.centralLayout = QtWidgets.QGraphicsGridLayout()
-        self.centralWidget.setLayout(self.centralLayout)
-        
-        self.mouseEnabled = False
-        self.scaleCenter = False  ## should scaling center around view center (True) or mouse click (False)
-        self.clickAccepted = False
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            self.closed = False
+            
+            QtWidgets.QGraphicsView.__init__(self, parent)
+            untrack_if_broken(self)
+            
+            # This connects a cleanup function to QApplication.aboutToQuit. It is
+            # called from here because we have no good way to react when the
+            # QApplication is created by the user.
+            # See pyqtgraph.__init__.py
+            from .. import _connectCleanup
+            _connectCleanup()
+            
+            if useOpenGL is None:
+                useOpenGL = getConfigOption('useOpenGL')
+            
+            self.useOpenGL(useOpenGL)
+            self.setCacheMode(self.CacheModeFlag.CacheBackground)
+            
+            ## This might help, but it's probably dangerous in the general case..
+            #self.setOptimizationFlag(self.DontSavePainterState, True)
+            
+            self.setBackgroundRole(QtGui.QPalette.ColorRole.NoRole)
+            self.setBackground(background)
+            
+            self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
+            self.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+            self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.setTransformationAnchor(QtWidgets.QGraphicsView.ViewportAnchor.NoAnchor)
+            self.setResizeAnchor(QtWidgets.QGraphicsView.ViewportAnchor.AnchorViewCenter)
+            self.setViewportUpdateMode(QtWidgets.QGraphicsView.ViewportUpdateMode.MinimalViewportUpdate)
+            
+            
+            self.lockedViewports = []
+            self.lastMousePos = None
+            self.setMouseTracking(True)
+            self.aspectLocked = False
+            self.range = QtCore.QRectF(0, 0, 1, 1)
+            self.autoPixelRange = True
+            self.currentItem = None
+            self.clearMouse()
+            self.updateMatrix()
+            # GraphicsScene must have parent or expect crashes!
+            self.sceneObj = GraphicsScene(parent=self)
+            self.setScene(self.sceneObj)
+            
+            ## Workaround for PySide crash
+            ## This ensures that the scene will outlive the view.
+            if QT_LIB == 'PySide':
+                self.sceneObj._view_ref_workaround = self
+            
+            ## by default we set up a central widget with a grid layout.
+            ## this can be replaced if needed.
+            self.centralWidget = None
+            self.setCentralItem(QtWidgets.QGraphicsWidget())
+            self.centralLayout = QtWidgets.QGraphicsGridLayout()
+            self.centralWidget.setLayout(self.centralLayout)
+            
+            self.mouseEnabled = False
+            self.scaleCenter = False  ## should scaling center around view center (True) or mouse click (False)
+            self.clickAccepted = False
+        finally:
+            if was_enabled:
+                gc.enable()
 
     def setAntialiasing(self, aa):
         """Enable or disable default antialiasing.

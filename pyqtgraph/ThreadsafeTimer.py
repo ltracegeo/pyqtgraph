@@ -1,4 +1,5 @@
-from .Qt import QtCore
+import gc
+from .Qt import QtCore, untrack_if_broken
 
 __all__ = ['ThreadsafeTimer']
 
@@ -12,13 +13,21 @@ class ThreadsafeTimer(QtCore.QObject):
     sigTimerStartRequested = QtCore.Signal(object)
     
     def __init__(self):
-        QtCore.QObject.__init__(self)
-        self.timer = QtCore.QTimer()
-        self.timer.timeout.connect(self.timerFinished)
-        self.timer.moveToThread(QtCore.QCoreApplication.instance().thread())
-        self.moveToThread(QtCore.QCoreApplication.instance().thread())
-        self.sigTimerStopRequested.connect(self.stop, QtCore.Qt.ConnectionType.QueuedConnection)
-        self.sigTimerStartRequested.connect(self.start, QtCore.Qt.ConnectionType.QueuedConnection)
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            QtCore.QObject.__init__(self)
+            untrack_if_broken(self)
+            self.timer = QtCore.QTimer()
+            untrack_if_broken(self.timer)
+            self.timer.timeout.connect(self.timerFinished)
+            self.timer.moveToThread(QtCore.QCoreApplication.instance().thread())
+            self.moveToThread(QtCore.QCoreApplication.instance().thread())
+            self.sigTimerStopRequested.connect(self.stop, QtCore.Qt.ConnectionType.QueuedConnection)
+            self.sigTimerStartRequested.connect(self.start, QtCore.Qt.ConnectionType.QueuedConnection)
+        finally:
+            if was_enabled:
+                gc.enable()
         
         
     def start(self, timeout):

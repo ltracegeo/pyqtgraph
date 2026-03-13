@@ -1,4 +1,5 @@
-from ..Qt import QtCore, QtWidgets
+import gc
+from ..Qt import QtCore, QtWidgets, untrack_if_broken
 
 __all__ = ['TreeWidget', 'TreeWidgetItem']
 
@@ -14,18 +15,25 @@ class TreeWidget(QtWidgets.QTreeWidget):
     sigColumnCountChanged = QtCore.Signal(object, object)  # self, count
     
     def __init__(self, parent=None):
-        QtWidgets.QTreeWidget.__init__(self, parent)
-        
-        # wrap this item so that we can propagate tree change information
-        # to children.
-        self._invRootItem = InvisibleRootItem(QtWidgets.QTreeWidget.invisibleRootItem(self))
-        
-        self.setAcceptDrops(True)
-        self.setDragEnabled(True)
-        self.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.EditKeyPressed|QtWidgets.QAbstractItemView.EditTrigger.SelectedClicked)
-        self.placeholders = []
-        self.childNestingLimit = None
-        self.itemClicked.connect(self._itemClicked)
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            QtWidgets.QTreeWidget.__init__(self, parent)
+            untrack_if_broken(self)
+            
+            # wrap this item so that we can propagate tree change information
+            # to children.
+            self._invRootItem = InvisibleRootItem(QtWidgets.QTreeWidget.invisibleRootItem(self))
+            
+            self.setAcceptDrops(True)
+            self.setDragEnabled(True)
+            self.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.EditKeyPressed|QtWidgets.QAbstractItemView.EditTrigger.SelectedClicked)
+            self.placeholders = []
+            self.childNestingLimit = None
+            self.itemClicked.connect(self._itemClicked)
+        finally:
+            if was_enabled:
+                gc.enable()
 
     def setItemWidget(self, item, col, wid):
         """

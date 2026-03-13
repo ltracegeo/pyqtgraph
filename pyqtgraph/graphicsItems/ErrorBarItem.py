@@ -1,3 +1,4 @@
+import numpy as np
 from .. import functions as fn
 from .. import getConfigOption
 from ..Qt import QtGui
@@ -27,29 +28,11 @@ class ErrorBarItem(GraphicsObject):
         self.setData(**opts)
 
     def setData(self, **opts):
-        """
-        Update the data in the item. All arguments are optional.
-        
-        Valid keyword options are:
-        x, y, height, width, top, bottom, left, right, beam, pen
-        
-          * x and y must be numpy arrays specifying the coordinates of data points.
-          * height, width, top, bottom, left, right, and beam may be numpy arrays,
-            single values, or None to disable. All values should be positive.
-          * top, bottom, left, and right specify the lengths of bars extending
-            in each direction.
-          * If height is specified, it overrides top and bottom.
-          * If width is specified, it overrides left and right.
-          * beam specifies the width of the beam at the end of each bar.
-          * pen may be any single argument accepted by pg.mkPen().
-        
-        This method was added in version 0.9.9. For prior versions, use setOpts.
-        """
         self.opts.update(opts)
         self.setVisible(all(self.opts[ax] is not None for ax in ['x', 'y']))
-        self.path = None
-        self.update()
         self.prepareGeometryChange()
+        self.drawPath()
+        self.update()
         self.informViewBoundsChanged()
         
     def setOpts(self, **opts):
@@ -93,6 +76,13 @@ class ErrorBarItem(GraphicsObject):
 
                 x1_x2 = fn.interweaveArrays(x1, x2)
                 if height is not None or top is not None:
+                    y2s = fn.interweaveArrays(x1_x2, x1_x2) # wait, this was wrong in original? No, xs was x,x.
+                    # Wait, looking at original code:
+                    # x1_x2 = fn.interweaveArrays(x1, x2)
+                    # if height is not None or top is not None:
+                    #     y2s = fn.interweaveArrays(y2, y2)
+                    #     topEnds = fn.arrayToQPath(x1_x2, y2s, connect="pairs")
+                    #     p.addPath(topEnds)
                     y2s = fn.interweaveArrays(y2, y2)
                     topEnds = fn.arrayToQPath(x1_x2, y2s, connect="pairs")
                     p.addPath(topEnds)
@@ -138,9 +128,38 @@ class ErrorBarItem(GraphicsObject):
                     p.addPath(leftEnds)
                     
         self.path = p
-        self.prepareGeometryChange()
         
         
+    def dataBounds(self, ax, frac=1.0, orthoRange=None):
+        if self.opts['x'] is None or self.opts['y'] is None:
+            return None
+        
+        x = self.opts['x']
+        y = self.opts['y']
+        
+        if ax == 0:
+            d = x
+            if self.opts['width'] is not None:
+                w = self.opts['width']
+                return (np.min(d - w/2.), np.max(d + w/2.))
+            elif self.opts['left'] is not None or self.opts['right'] is not None:
+                l = self.opts['left'] if self.opts['left'] is not None else 0
+                r = self.opts['right'] if self.opts['right'] is not None else 0
+                return (np.min(d - l), np.max(d + r))
+            else:
+                return (np.min(d), np.max(d))
+        else:
+            d = y
+            if self.opts['height'] is not None:
+                h = self.opts['height']
+                return (np.min(d - h/2.), np.max(d + h/2.))
+            elif self.opts['bottom'] is not None or self.opts['top'] is not None:
+                b = self.opts['bottom'] if self.opts['bottom'] is not None else 0
+                t = self.opts['top'] if self.opts['top'] is not None else 0
+                return (np.min(d - b), np.max(d + t))
+            else:
+                return (np.min(d), np.max(d))
+
     def paint(self, p, *args):
         if self.path is None:
             self.drawPath()

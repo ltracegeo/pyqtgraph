@@ -1,4 +1,5 @@
-from ..Qt import QtCore, QtGui, QtWidgets
+import gc
+from ..Qt import QtCore, QtGui, QtWidgets, untrack_if_broken
 
 translate = QtCore.QCoreApplication.translate
 
@@ -16,25 +17,32 @@ class ParameterItem(QtWidgets.QTreeWidgetItem):
     """
 
     def __init__(self, param, depth=0):
-        QtWidgets.QTreeWidgetItem.__init__(self, [param.title(), ''])
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            QtWidgets.QTreeWidgetItem.__init__(self, [param.title(), ''])
+            untrack_if_broken(self)
 
-        self.param = param
-        self.param.registerItem(self)  ## let parameter know this item is connected to it (for debugging)
-        self.depth = depth
-        
-        param.sigValueChanged.connect(self.valueChanged)
-        param.sigChildAdded.connect(self.childAdded)
-        param.sigChildRemoved.connect(self.childRemoved)
-        param.sigNameChanged.connect(self.nameChanged)
-        param.sigLimitsChanged.connect(self.limitsChanged)
-        param.sigDefaultChanged.connect(self.defaultChanged)
-        param.sigOptionsChanged.connect(self.optsChanged)
-        param.sigParentChanged.connect(self.parentChanged)
-        
-        self.updateFlags()
+            self.param = param
+            self.param.registerItem(self)  ## let parameter know this item is connected to it (for debugging)
+            self.depth = depth
+            
+            param.sigValueChanged.connect(self.valueChanged)
+            param.sigChildAdded.connect(self.childAdded)
+            param.sigChildRemoved.connect(self.childRemoved)
+            param.sigNameChanged.connect(self.nameChanged)
+            param.sigLimitsChanged.connect(self.limitsChanged)
+            param.sigDefaultChanged.connect(self.defaultChanged)
+            param.sigOptionsChanged.connect(self.optsChanged)
+            param.sigParentChanged.connect(self.parentChanged)
+            
+            self.updateFlags()
 
-        ## flag used internally during name editing
-        self.ignoreNameColumnChange = False
+            ## flag used internally during name editing
+            self.ignoreNameColumnChange = False
+        finally:
+            if was_enabled:
+                gc.enable()
 
     def updateFlags(self):
         ## called when Parameter opts changed

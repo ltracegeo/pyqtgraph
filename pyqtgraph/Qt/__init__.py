@@ -6,6 +6,7 @@ This module exists to smooth out some of the differences between Qt versions.
   you want to use.
 """
 
+import gc
 import os
 import re
 import subprocess
@@ -353,9 +354,20 @@ if QT_LIB in [PYQT6, PYSIDE6]:
 
 # Common to PySide2 and PySide6
 if QT_LIB in [PYSIDE2, PYSIDE6]:
+    import gc
     QtVersion = QtCore.__version__
     loadUiType = _loadUiType
-    isQObjectAlive = shiboken.isValid
+    
+    def isQObjectAlive(obj):
+        try:
+            return shiboken.isValid(obj)
+        except (RuntimeError, ReferenceError, TypeError, AttributeError):
+            return False
+
+    def untrack_if_broken(obj):
+        """No-op on Python (gc.untrack does not exist).
+        """
+        pass
 
     # PySide does not implement qWait
     if not isinstance(QtTest, FailedImport):
@@ -367,6 +379,9 @@ if QT_LIB in [PYSIDE2, PYSIDE6]:
                 while time.time() < start + msec * 0.001:
                     QtWidgets.QApplication.processEvents()
             QtTest.QTest.qWait = qWait
+else:
+    def untrack_if_broken(obj):
+        pass
 
 
 # Common to PyQt5 and PyQt6

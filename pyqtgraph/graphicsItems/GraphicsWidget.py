@@ -1,3 +1,4 @@
+import gc
 from ..Qt import QtGui, QtWidgets
 from .GraphicsItem import GraphicsItem
 
@@ -13,8 +14,14 @@ class GraphicsWidget(GraphicsItem, QtWidgets.QGraphicsWidget):
         Extends QGraphicsWidget with several helpful methods and workarounds for PyQt bugs. 
         Most of the extra functionality is inherited from :class:`GraphicsItem <pyqtgraph.GraphicsItem>`.
         """
-        QtWidgets.QGraphicsWidget.__init__(self, *args, **kargs)
-        GraphicsItem.__init__(self)
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            QtWidgets.QGraphicsWidget.__init__(self, *args, **kargs)
+            GraphicsItem.__init__(self)
+        finally:
+            if was_enabled:
+                gc.enable()
 
         # cache bouding rect and geometry
         self._boundingRectCache = self._previousGeometry = None

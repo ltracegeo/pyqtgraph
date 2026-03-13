@@ -1,3 +1,4 @@
+import gc
 from .. import functions as fn
 from ..Qt import QtWidgets
 from .GraphicsWidget import GraphicsWidget
@@ -110,36 +111,42 @@ class GraphicsLayout(GraphicsWidget):
         Add an item to the layout and place it in the next available cell (or in the cell specified).
         The item must be an instance of a QGraphicsWidget subclass.
         """
-        if row is None:
-            row = self.currentRow
-        if col is None:
-            col = self.currentCol
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            if row is None:
+                row = self.currentRow
+            if col is None:
+                col = self.currentCol
+                
+            self.items[item] = []
+            for i in range(rowspan):
+                for j in range(colspan):
+                    row2 = row + i
+                    col2 = col + j
+                    if row2 not in self.rows:
+                        self.rows[row2] = {}
+                    self.rows[row2][col2] = item
+                    self.items[item].append((row2, col2))
+
+            borderRect = QtWidgets.QGraphicsRectItem()
+
+            borderRect.setParentItem(self)
+            borderRect.setZValue(1e3)
+            borderRect.setPen(fn.mkPen(self.border))
+
+            self.itemBorders[item] = borderRect
+
+            item.geometryChanged.connect(self._updateItemBorder)
+
+            self.layout.addItem(item, row, col, rowspan, colspan)
+            self.layout.activate() # Update layout, recalculating bounds.
+                                   # Allows some PyQtGraph features to also work without Qt event loop.
             
-        self.items[item] = []
-        for i in range(rowspan):
-            for j in range(colspan):
-                row2 = row + i
-                col2 = col + j
-                if row2 not in self.rows:
-                    self.rows[row2] = {}
-                self.rows[row2][col2] = item
-                self.items[item].append((row2, col2))
-
-        borderRect = QtWidgets.QGraphicsRectItem()
-
-        borderRect.setParentItem(self)
-        borderRect.setZValue(1e3)
-        borderRect.setPen(fn.mkPen(self.border))
-
-        self.itemBorders[item] = borderRect
-
-        item.geometryChanged.connect(self._updateItemBorder)
-
-        self.layout.addItem(item, row, col, rowspan, colspan)
-        self.layout.activate() # Update layout, recalculating bounds.
-                               # Allows some PyQtGraph features to also work without Qt event loop.
-        
-        self.nextColumn()
+            self.nextColumn()
+        finally:
+            if was_enabled:
+                gc.enable()
 
     def getItem(self, row, col):
         """Return the item in (*row*, *col*). If the cell is empty, return None."""

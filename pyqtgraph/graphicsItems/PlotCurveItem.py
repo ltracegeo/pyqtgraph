@@ -1,6 +1,7 @@
 from ..Qt import QtCore, QtGui, QtWidgets
 
 HAVE_OPENGL = hasattr(QtWidgets, 'QOpenGLWidget')
+import gc
 import itertools
 import math
 import sys
@@ -27,10 +28,26 @@ class LineSegments:
         self.alloc(0)
 
     def alloc(self, size):
-        self.arr = np.empty((size, 4), dtype=np.float64)
-        self.ptrs = list(map(wrapinstance,
-            itertools.count(self.arr.ctypes.data, self.arr.strides[0]),
-            itertools.repeat(QtCore.QLineF, self.arr.shape[0])))
+        # Clear old first to avoid dangling pointers during GC traversal if a collection happens now
+        self.ptrs = []
+        self.arr = None
+        self.ref_holder = None
+
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            arr = np.empty((size, 4), dtype=np.float64)
+            ptrs = list(map(wrapinstance,
+                itertools.count(arr.ctypes.data, arr.strides[0]),
+                itertools.repeat(QtCore.QLineF, arr.shape[0])))
+            
+            self.arr = arr
+            self.ptrs = ptrs
+            # Link their lifecycles to ensure the array is not collected while wrappers exist
+            self.ref_holder = (ptrs, arr)
+        finally:
+            if was_enabled:
+                gc.enable()
 
     def array(self, size):
         if size > self.arr.shape[0]:

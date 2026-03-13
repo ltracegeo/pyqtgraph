@@ -4,8 +4,9 @@ Copyright 2010  Luke Campagnola
 Distributed under MIT/X11 license. See license.txt for more information.
 """
 
+import gc
 from ..graphicsItems.PlotItem import *
-from ..Qt import QtCore, QtWidgets
+from ..Qt import QtCore, QtWidgets, untrack_if_broken
 from .GraphicsView import *
 
 __all__ = ['PlotWidget']
@@ -48,23 +49,31 @@ class PlotWidget(GraphicsView):
         :func:`GraphicsWidget.__init__() <pyqtgraph.GraphicsWidget.__init__>`
         and all others are passed
         to :func:`PlotItem.__init__() <pyqtgraph.PlotItem.__init__>`."""
-        GraphicsView.__init__(self, parent, background=background)
-        self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
-        self.enableMouse(False)
-        if plotItem is None:
-            self.plotItem = PlotItem(**kargs)
-        else:
-            self.plotItem = plotItem
-        self.setCentralItem(self.plotItem)
-        ## Explicitly wrap methods from plotItem
-        ## NOTE: If you change this list, update the documentation above as well.
-        for m in ['addItem', 'removeItem', 'autoRange', 'clear', 'setAxisItems', 'setXRange', 
-                  'setYRange', 'setRange', 'setAspectLocked', 'setMouseEnabled', 
-                  'setXLink', 'setYLink', 'enableAutoRange', 'disableAutoRange', 
-                  'setLimits', 'register', 'unregister', 'viewRect']:
-            setattr(self, m, getattr(self.plotItem, m))
-        #QtCore.QObject.connect(self.plotItem, QtCore.SIGNAL('viewChanged'), self.viewChanged)
-        self.plotItem.sigRangeChanged.connect(self.viewRangeChanged)
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            GraphicsView.__init__(self, parent, background=background)
+            untrack_if_broken(self)
+            
+            self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
+            self.enableMouse(False)
+            if plotItem is None:
+                self.plotItem = PlotItem(**kargs)
+            else:
+                self.plotItem = plotItem
+            self.setCentralItem(self.plotItem)
+            ## Explicitly wrap methods from plotItem
+            ## NOTE: If you change this list, update the documentation above as well.
+            for m in ['addItem', 'removeItem', 'autoRange', 'clear', 'setAxisItems', 'setXRange', 
+                      'setYRange', 'setRange', 'setAspectLocked', 'setMouseEnabled', 
+                      'setXLink', 'setYLink', 'enableAutoRange', 'disableAutoRange', 
+                      'setLimits', 'register', 'unregister', 'viewRect']:
+                setattr(self, m, getattr(self.plotItem, m))
+            #QtCore.QObject.connect(self.plotItem, QtCore.SIGNAL('viewChanged'), self.viewChanged)
+            self.plotItem.sigRangeChanged.connect(self.viewRangeChanged)
+        finally:
+            if was_enabled:
+                gc.enable()
     
     def close(self):
         self.plotItem.close()

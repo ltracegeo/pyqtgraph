@@ -7,6 +7,7 @@ Distributed under MIT/X11 license. See license.txt for more information.
 from __future__ import division
 
 import decimal
+import gc
 import math
 import re
 import struct
@@ -1720,7 +1721,7 @@ def ndarray_from_qimage(qimg):
 
     memory = np.frombuffer(img_ptr, dtype=np.ubyte).reshape((h, bpl))
     memory = memory[:, :logical_bpl]
-
+    
     if depth in (8, 24, 32):
         dtype = np.uint8
         nchan = depth // 8
@@ -1734,6 +1735,7 @@ def ndarray_from_qimage(qimg):
     if nchan != 1:
         shape = shape + (nchan,)
     arr = memory.view(dtype).reshape(shape)
+    
     return arr
 
 
@@ -2190,6 +2192,7 @@ def ndarray_from_qpolygonf(polyline):
         if ptr is None:
             ptr = 0
         buffer = Qt.shiboken.VoidPtr(ptr, nbytes, True)
+                
     memory = np.frombuffer(buffer, np.double).reshape((-1, 2))
     return memory
 
