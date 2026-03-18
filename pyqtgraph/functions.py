@@ -2135,11 +2135,24 @@ def arrayToQPath(x, y, connect='all', finiteCheck=True):
     if connect == 'all':
         return _arrayToQPath_all(x, y, finiteCheck)
 
-    backstore = QtCore.QByteArray()
-    backstore.resize(4 + n*20 + 8)      # contents uninitialized
-    backstore.replace(0, 4, struct.pack('>i', n))
+    # backstore = QtCore.QByteArray()
+    # backstore.resize(4 + n*20 + 8)      # contents uninitialized
+    # backstore.replace(0, 4, struct.pack('>i', n))
+    # # cStart, fillRule (Qt.FillRule.OddEvenFill)
+    # backstore.replace(4+n*20, 8, struct.pack('>ii', 0, 0))
+
+    # When PySide{2,6} is built without Py_LIMITED_API,
+    # it leaks memory when a memory view to a QByteArray
+    # object is taken.
+    # See https://github.com/pyqtgraph/pyqtgraph/issues/3265
+    # This leak is present in the following builds:
+    # - conda-forge's PySide6 6.7.3 through 6.8.2-build0
+    # - conda-forge's PySide2 5.15.15
+    backstore = bytearray(4 + n*20 + 8) # initialized to zero
+    struct.pack_into('>i', backstore, 0, n)
     # cStart, fillRule (Qt.FillRule.OddEvenFill)
-    backstore.replace(4+n*20, 8, struct.pack('>ii', 0, 0))
+    struct.pack_into('>ii', backstore, 4+n*20, 0, 0)
+        
     arr = np.frombuffer(backstore, dtype=[('c', '>i4'), ('x', '>f8'), ('y', '>f8')],
         count=n, offset=4)
 
@@ -2176,8 +2189,15 @@ def arrayToQPath(x, y, connect='all', finiteCheck=True):
     if hasattr(path, 'reserve'):    # Qt 5.13
         path.reserve(n)
 
-    ds = QtCore.QDataStream(backstore)
-    ds >> path
+    # ds = QtCore.QDataStream(backstore)
+    # ds >> path
+    if isinstance(backstore, QtCore.QByteArray):
+        ds = QtCore.QDataStream(backstore)
+        ds >> path
+    elif isinstance(backstore, bytearray):
+        qba = QtCore.QByteArray(backstore)  # a copy is made here
+        ds = QtCore.QDataStream(qba)
+        ds >> path
     return path
 
 def ndarray_from_qpolygonf(polyline):
