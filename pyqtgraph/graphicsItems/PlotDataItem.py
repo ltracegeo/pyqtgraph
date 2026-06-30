@@ -1213,7 +1213,7 @@ class PlotDataItem(GraphicsObject):
                 raise TypeError('Invalid data type %s' % type(data))
 
         elif len(args) == 2:
-            seq = ('listOfValues', 'empty')
+            seq = ('listOfValues', 'MetaArray', 'empty', '2darray')
             dtyp = dataType(args[0]), dataType(args[1])
             if dtyp[0] not in seq or dtyp[1] not in seq:
                 raise TypeError(
@@ -1859,6 +1859,8 @@ def dataType(obj) -> str:
                 type_ = 'listOfValues' if obj.dtype.names is None else 'recarray'
             elif obj.ndim == 2 and obj.dtype.names is None and obj.shape[1] == 2:
                 type_ = 'Nx2array'
+            elif obj.ndim == 2:
+                return '2darray'
             else:
                 raise ValueError(
                     f'array shape must be (N,) or (N,2); got {str(obj.shape)} instead'
