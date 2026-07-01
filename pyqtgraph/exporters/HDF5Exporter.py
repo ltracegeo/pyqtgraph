@@ -1,4 +1,4 @@
-import importlib
+import importlib.util
 
 import numpy
 
@@ -21,10 +21,10 @@ class HDF5Exporter(Exporter):
 
     def __init__(self, item):
         Exporter.__init__(self, item)
-        self.params = Parameter(name='params', type='group', children=[
+        self.params = Parameter.create(name='params', type='group', children=[
             {'name': 'Name', 'title': translate("Exporter", 'Name'), 'type': 'str', 'value': 'Export', },
             {'name': 'columnMode', 'title': translate("Exporter", 'columnMode'), 'type': 'list',
-             'limits': ['(x,y) per plot', '(x,y,y,y) for all plots']},
+             'limits': ['(x,y) per plot', '(x,y,y,y) for all plots'], 'value': '(x,y) per plot'},
         ])
         
     def parameters(self):
@@ -58,7 +58,7 @@ class HDF5Exporter(Exporter):
                 d = c.getData()
                 fdata = numpy.array([d[0], d[1]]).astype('double')
                 cname = c.name() if c.name() is not None else str(i)
-                dset = dgroup.create_dataset(cname, data=fdata)
+                dgroup.create_dataset(cname, data=fdata)
         else:
             for i, c in enumerate(self.item.curves):
                 d = c.getData()
@@ -67,7 +67,7 @@ class HDF5Exporter(Exporter):
                 data.append(d[1])
 
             fdata = numpy.array(data).astype('double')
-            dset = fd.create_dataset(dsname, data=fdata)
+            fd.create_dataset(dsname, data=fdata)
 
         fd.close()
 

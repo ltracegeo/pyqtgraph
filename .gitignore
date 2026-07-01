@@ -1,6 +1,7 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
+*$py.class
 
 # C extensions
 *.so
@@ -21,7 +22,6 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
-doc/_build
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -42,6 +42,14 @@ cover/
 nosetests.xml
 coverage.xml
 .coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
 
 # Translations
 *.mo
@@ -58,9 +66,6 @@ coverage.xml
 # Django stuff:
 *.log
 *.pot
-
-# Sphinx documentation
-docs/_build/
 
 #mac
 .DS_Store
@@ -81,31 +86,56 @@ docs/_build/
 *.am
 *.tiff
 *.tif
+*.png
+!doc/source/**/*.png
 *.dat
 *.DAT
 
-#generated documntation files
+# Sphinx documentation
+doc/_build/
 doc/resource/api/generated/
 
 # Enaml
 __enamlcache__/
 
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# pyright
+pyrightconfig.json
 
 # PyBuilder
 target/
-
-# sphinx docs
-generated/
 
 MANIFEST
 deb_build
 rtr.cvs
 
-# pytest parallel
-.coverage
-
 # ctags
 .tags*
 
+# asv artifcats
 .asv/
 asv.conf.json
+
+# jupyter notebooks
+.ipynb_checkpoints
+
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+#vscode
+.vscode/settings.json

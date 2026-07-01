@@ -14,7 +14,7 @@ from .ScatterPlotItem import ScatterPlotItem, drawSymbol
 __all__ = ['LegendItem', 'ItemSample']
 
 
-class LegendItem(GraphicsWidget, GraphicsWidgetAnchor):
+class LegendItem(GraphicsWidgetAnchor, GraphicsWidget):
     """
     Displays a legend used for describing the contents of a plot.
 
@@ -29,7 +29,10 @@ class LegendItem(GraphicsWidget, GraphicsWidgetAnchor):
 
     """
 
-    def __init__(self, size=None, offset=None, horSpacing=25, verSpacing=0,
+    sigDoubleClicked = QtCore.Signal(object, object)
+    sigSampleClicked = QtCore.Signal(object)
+
+    def __init__(self, size=None, offset=None, horSpacing=5, verSpacing=0,
                  pen=None, brush=None, labelTextColor=None, frame=True,
                  labelTextSize='9pt', colCount=1, sampleType=None, **kwargs):
         """
@@ -218,6 +221,9 @@ class LegendItem(GraphicsWidget, GraphicsWidgetAnchor):
             sample = item
         else:
             sample = self.sampleType(item)
+
+        sample.sigClicked.connect(self.sigSampleClicked)
+
         self.items.append((sample, label))
         self._addItemToLayout(sample, label)
         self.updateSize()
@@ -239,7 +245,7 @@ class LegendItem(GraphicsWidget, GraphicsWidgetAnchor):
                     # MAKE NEW ROW
                     col = 0
                     row += 1
-        self.layout.addItem(sample, row, col)
+        self.layout.addItem(sample, row, col, alignment=QtCore.Qt.AlignmentFlag.AlignVCenter)
         self.layout.addItem(label, row, col + 1)
         # Keep rowCount in sync with the number of rows if items are added
         self.rowCount = max(self.rowCount, row + 1)
@@ -268,6 +274,18 @@ class LegendItem(GraphicsWidget, GraphicsWidgetAnchor):
         except IndexError:
             return None
 
+    def _removeItemFromLayout(self, *args):
+        for item in args:
+            self.layout.removeItem(item)
+            item.close()
+            # Normally, the item is automatically removed from
+            # its scene when it gets destroyed.
+            # this doesn't happen on current versions of
+            # PySide (5.15.x, 6.3.x) and results in a leak.
+            scene = item.scene()
+            if scene:
+                scene.removeItem(item)
+
     def removeItem(self, item):
         """Removes one item from the legend.
 
@@ -279,20 +297,14 @@ class LegendItem(GraphicsWidget, GraphicsWidgetAnchor):
         for sample, label in self.items:
             if sample.item is item or label.text == item:
                 self.items.remove((sample, label))  # remove from itemlist
-                self.layout.removeItem(sample)  # remove from layout
-                sample.close()  # remove from drawing
-                self.layout.removeItem(label)
-                label.close()
-                self.updateSize()  # redraq box
+                self._removeItemFromLayout(sample, label)
+                self.updateSize()  # redraw box
                 return  # return after first match
 
     def clear(self):
         """Remove all items from the legend."""
         for sample, label in self.items:
-            self.layout.removeItem(sample)
-            sample.close()
-            self.layout.removeItem(label)
-            label.close()
+            self._removeItemFromLayout(sample, label)
 
         self.items = []
         self.updateSize()
@@ -333,14 +345,22 @@ class LegendItem(GraphicsWidget, GraphicsWidgetAnchor):
             dpos = ev.pos() - ev.lastPos()
             self.autoAnchor(self.pos() + dpos)
 
+    def mouseDoubleClickEvent(self, ev):
+        self.sigDoubleClicked.emit(self, ev)
+        ev.accept()
+
 
 class ItemSample(GraphicsWidget):
     """Class responsible for drawing a single item in a LegendItem (sans label)
     """
 
+    sigClicked = QtCore.Signal(object)
+
     def __init__(self, item):
         GraphicsWidget.__init__(self)
         self.item = item
+        self.setFixedWidth(20)
+        self.setFixedHeight(20)
 
     def boundingRect(self):
         return QtCore.QRectF(0, 0, 20, 20)
@@ -389,3 +409,5 @@ class ItemSample(GraphicsWidget):
 
         event.accept()
         self.update()
+        self.sigClicked.emit(self.item)
+

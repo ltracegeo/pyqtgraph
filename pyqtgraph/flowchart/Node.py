@@ -1,7 +1,6 @@
 __all__ = ["Node", "NodeGraphicsItem"]
 
 import sys
-import warnings
 from collections import OrderedDict
 
 from .. import functions as fn
@@ -190,22 +189,6 @@ class Node(QtCore.QObject):
             self._graphicsItem = NodeGraphicsItem(self)
         return self._graphicsItem
     
-    ## this is just bad planning. Causes too many bugs.
-    def __getattr__(self, attr):
-        """Return the terminal with the given name"""
-        warnings.warn(
-            "Use of note.terminalName is deprecated, use node['terminalName'] instead"
-            "Will be removed from 0.13.0",
-            DeprecationWarning, stacklevel=2
-        )
-        
-        if attr not in self.terminals:
-            raise AttributeError(attr)
-        else:
-            import traceback
-            traceback.print_stack()
-            print("Warning: use of node.terminalName is deprecated; use node['terminalName'] instead.")
-            return self.terminals[attr]
             
     def __getitem__(self, item):
         #return getattr(self, item)
@@ -462,6 +445,13 @@ class TextItem(QtWidgets.QGraphicsTextItem):
                 self.on_update()
                 return
         super().keyPressEvent(ev)
+        
+    def mousePressEvent(self, ev):
+        if ev.button() == QtCore.Qt.MouseButton.LeftButton:
+            self.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextEditorInteraction)
+            self.setFocus(QtCore.Qt.FocusReason.MouseFocusReason)  # focus text label
+        elif ev.button() == QtCore.Qt.MouseButton.RightButton:
+            self.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.NoTextInteraction)
 
 
 #class NodeGraphicsItem(QtWidgets.QGraphicsItem):
@@ -492,12 +482,49 @@ class NodeGraphicsItem(GraphicsObject):
         self.nameItem = TextItem(self.node.name(), self, self.labelChanged)
         self.nameItem.setDefaultTextColor(QtGui.QColor(50, 50, 50))
         self.nameItem.moveBy(self.bounds.width()/2. - self.nameItem.boundingRect().width()/2., 0)
-        self.nameItem.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextEditorInteraction)
+        self._titleOffset = 25
+        self._nodeOffset = 12
         self.updateTerminals()
         #self.setZValue(10)
 
         self.menu = None
         self.buildMenu()
+
+    def setTitleOffset(self, new_offset):
+        """
+        This method sets the rendering offset introduced after the title of the node.
+        This method automatically updates the terminal labels. The default for this value is 25px.
+
+        :param new_offset: The new offset to use in pixels at 100% scale.
+        """
+        self._titleOffset = new_offset
+        self.updateTerminals()
+
+    def titleOffset(self):
+        """
+        This method returns the current title offset in use.
+
+        :returns: The offset in px.
+        """
+        return self._titleOffset
+
+    def setTerminalOffset(self, new_offset):
+        """
+        This method sets the rendering offset introduced after every terminal of the node.
+        This method automatically updates the terminal labels. The default for this value is 12px.
+
+        :param new_offset: The new offset to use in pixels at 100% scale.
+        """
+        self._nodeOffset = new_offset
+        self.updateTerminals()
+
+    def terminalOffset(self):
+        """
+        This method returns the current terminal offset in use.
+
+        :returns: The offset in px.
+        """
+        return self._nodeOffset
         
         #self.node.sigTerminalRenamed.connect(self.updateActionMenu)
         
@@ -530,11 +557,9 @@ class NodeGraphicsItem(GraphicsObject):
         out = self.node.outputs()
         
         maxNode = max(len(inp), len(out))
-        titleOffset = 25
-        nodeOffset = 12
         
         # calculate new height
-        newHeight = titleOffset+maxNode*nodeOffset
+        newHeight = self._titleOffset + maxNode*self._nodeOffset
         
         # if current height is not equal to new height, update
         if not self.bounds.height() == newHeight:
@@ -542,24 +567,24 @@ class NodeGraphicsItem(GraphicsObject):
             self.update()
 
         # Populate inputs
-        y = titleOffset
+        y = self._titleOffset
         for i, t in inp.items():
             item = t.graphicsItem()
             item.setParentItem(self)
             #item.setZValue(self.zValue()+1)
             item.setAnchor(0, y)
             self.terminals[i] = (t, item)
-            y += nodeOffset
+            y += self._nodeOffset
         
         # Populate inputs
-        y = titleOffset
+        y = self._titleOffset
         for i, t in out.items():
             item = t.graphicsItem()
             item.setParentItem(self)
             item.setZValue(self.zValue())
             item.setAnchor(self.bounds.width(), y)
             self.terminals[i] = (t, item)
-            y += nodeOffset
+            y += self._nodeOffset
         
         #self.buildMenu()
         
@@ -588,29 +613,18 @@ class NodeGraphicsItem(GraphicsObject):
 
 
     def mouseClickEvent(self, ev):
-        #print "Node.mouseClickEvent called."
         if ev.button() == QtCore.Qt.MouseButton.LeftButton:
             ev.accept()
-            #print "    ev.button: left"
             sel = self.isSelected()
-            #ret = QtWidgets.QGraphicsItem.mousePressEvent(self, ev)
             self.setSelected(True)
             if not sel and self.isSelected():
-                #self.setBrush(QtGui.QBrush(QtGui.QColor(200, 200, 255)))
-                #self.emit(QtCore.SIGNAL('selected'))
-                #self.scene().selectionChanged.emit() ## for some reason this doesn't seem to be happening automatically
                 self.update()
-            #return ret
         
         elif ev.button() == QtCore.Qt.MouseButton.RightButton:
-            #print "    ev.button: right"
             ev.accept()
-            #pos = ev.screenPos()
             self.raiseContextMenu(ev)
-            #self.menu.popup(QtCore.QPoint(pos.x(), pos.y()))
             
     def mouseDragEvent(self, ev):
-        #print "Node.mouseDrag"
         if ev.button() == QtCore.Qt.MouseButton.LeftButton:
             ev.accept()
             self.setPos(self.pos()+self.mapToParent(ev.pos())-self.mapToParent(ev.lastPos()))
@@ -637,7 +651,6 @@ class NodeGraphicsItem(GraphicsObject):
             for k, t in self.terminals.items():
                 t[1].nodeMoved()
         return GraphicsObject.itemChange(self, change, val)
-            
 
     def getMenu(self):
         return self.menu
@@ -645,7 +658,7 @@ class NodeGraphicsItem(GraphicsObject):
     def raiseContextMenu(self, ev):
         menu = self.scene().addParentContextMenus(self, self.getMenu(), ev)
         pos = ev.screenPos()
-        menu.popup(QtCore.QPoint(pos.x(), pos.y()))
+        menu.popup(QtCore.QPoint(int(pos.x()), int(pos.y())))
         
     def buildMenu(self):
         self.menu = QtWidgets.QMenu()

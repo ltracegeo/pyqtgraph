@@ -1,7 +1,7 @@
 import sys
 from collections import OrderedDict
 
-from ..Qt import QtWidgets
+from ..Qt import QtCore, QtWidgets
 
 __all__ = ['ComboBox']
 
@@ -106,26 +106,17 @@ class ComboBox(QtWidgets.QComboBox):
         If a dict is given, then the keys are used to populate the combo box
         and the values will be used for both value() and setValue().
         """
-        prevVal = self.value()
-        
-        self.blockSignals(True)
-        try:
-            self.clear()
-            self.addItems(items)
-        finally:
-            self.blockSignals(False)
-            
-        # only emit if we were not able to re-set the original value
-        if self.value() != prevVal:
-            self.currentIndexChanged.emit(self.currentIndex())
-        
+        self.clear()
+        self.addItems(items)
+
     def items(self):
-        return self.items.copy()
+        return self._items.copy()
         
     def updateList(self, items):
         # for backward compatibility
         return self.setItems(items)
 
+    @QtCore.Slot(int)
     def indexChanged(self, index):
         # current index has changed; need to remember new 'chosen text'
         if self._ignoreIndexChange:

@@ -1,9 +1,7 @@
-from ..Qt import QtCore, QtGui, QtWidgets
+from ..Qt import QtCore, QtGui, QtWidgets, QT_LIB
 
-HAVE_OPENGL = hasattr(QtWidgets, 'QOpenGLWidget')
-import itertools
+import importlib
 import math
-import sys
 import warnings
 
 import numpy as np
@@ -11,92 +9,206 @@ import numpy as np
 from .. import Qt, debug
 from .. import functions as fn
 from .. import getConfigOption
+from ..Qt import OpenGLConstants as GLC
+from ..Qt import OpenGLHelpers
 from .GraphicsObject import GraphicsObject
+
+if QT_LIB in ["PyQt5", "PySide2"]:
+    QtOpenGL = QtGui
+else:
+    QtOpenGL = importlib.import_module(f'{QT_LIB}.QtOpenGL')
 
 __all__ = ['PlotCurveItem']
 
 
-if Qt.QT_LIB.startswith('PyQt'):
-    wrapinstance = Qt.sip.wrapinstance
-else:
-    wrapinstance = Qt.shiboken.wrapInstance
+class OpenGLState(QtCore.QObject):
+    VERT_SRC = """
+        attribute vec4 a_position;
+        uniform mat4 u_mvp;
+        void main() {
+            gl_Position = u_mvp * a_position;
+        }
+    """
+    FRAG_SRC = """
+        uniform highp vec4 u_color;
+        void main() {
+            gl_FragColor = u_color;
+        }
+    """
+    VERT_SRC_140 = """
+        #version 140
+        in vec4 a_position;
+        uniform mat4 u_mvp;
+        void main() {
+            gl_Position = u_mvp * a_position;
+        }
+    """
+    FRAG_SRC_140 = """
+        #version 140
+        uniform vec4 u_color;
+        out vec4 fragColor;
+        void main() {
+            fragColor = u_color;
+        }
+    """
 
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.context = None
+        self.vbo_nbytes = 0
+        self.render_cache = None
+        self.m_vao = QtOpenGL.QOpenGLVertexArrayObject(self)
+        self.m_vbo = QtOpenGL.QOpenGLBuffer(QtOpenGL.QOpenGLBuffer.Type.VertexBuffer)
 
-class LineSegments:
-    def __init__(self):
-        self.alloc(0)
+    def setup(self, context):
+        if self.context is context:
+            return
 
-    def alloc(self, size):
-        self.arr = np.empty((size, 4), dtype=np.float64)
-        self.ptrs = list(map(wrapinstance,
-            itertools.count(self.arr.ctypes.data, self.arr.strides[0]),
-            itertools.repeat(QtCore.QLineF, self.arr.shape[0])))
+        if self.context is not None:
+            self.context.aboutToBeDestroyed.disconnect(self.cleanup)
+            self.cleanup()
 
-    def array(self, size):
-        if size > self.arr.shape[0]:
-            self.alloc(size + 16)
-        return self.arr[:size]
+        self.context = context
+        self.context.aboutToBeDestroyed.connect(self.cleanup)
 
-    def instances(self, size):
-        return self.ptrs[:size]
+        glwidget = self.parent()
+        program = glwidget.retrieveProgram("PlotCurveItem")
+        if program is None:
+            program = QtOpenGL.QOpenGLShaderProgram()
 
-    def arrayToLineSegments(self, x, y, connect, finiteCheck):
-        # analogue of arrayToQPath taking the same parameters
-        if len(x) < 2:
-            return []
+            is_opengles = self.context.isOpenGLES()
+            gl_version = self.context.format().version()
 
-        connect_array = None
-        if isinstance(connect, np.ndarray):
-            connect_array, connect = connect, 'array'
+            if not is_opengles and gl_version >= (3, 1):
+                vert_src = OpenGLState.VERT_SRC_140
+                frag_src = OpenGLState.FRAG_SRC_140
+            else:
+                vert_src = OpenGLState.VERT_SRC
+                frag_src = OpenGLState.FRAG_SRC
 
-        all_finite = True
-        if finiteCheck or connect == 'finite':
-            mask = np.isfinite(x) & np.isfinite(y)
-            all_finite = np.all(mask)
+            if not program.addShaderFromSourceCode(QtOpenGL.QOpenGLShader.ShaderTypeBit.Vertex, vert_src):
+                raise RuntimeError(program.log())
+            if not program.addShaderFromSourceCode(QtOpenGL.QOpenGLShader.ShaderTypeBit.Fragment, frag_src):
+                raise RuntimeError(program.log())
+            program.bindAttributeLocation("a_position", 0)
+            if not program.link():
+                raise RuntimeError(program.log())
+            glwidget.storeProgram("PlotCurveItem", program)
 
-        if connect == 'all':
-            if not all_finite:
-                # remove non-finite points, if any
-                x = x.compress(mask)
-                y = y.compress(mask)
+        self.m_vao.create()
+        self.m_vbo.create()
+        self.vbo_nbytes = 0
 
-        elif connect == 'finite':
-            if not all_finite:
-                # each non-finite point affects the segment before and after
-                connect_array = mask[:-1] & mask[1:]
+        self.m_vao.bind()
+        self.m_vbo.bind()
+        program.enableAttributeArray(0)
+        program.setAttributeBuffer(0, GLC.GL_FLOAT, 0, 2)
+        self.m_vbo.release()
+        self.m_vao.release()
 
-        elif connect in ['pairs', 'array']:
-            if not all_finite:
-                # replicate the behavior of arrayToQPath
-                backfill_idx = fn._compute_backfill_indices(mask)
-                x = x[backfill_idx]
-                y = y[backfill_idx]
+    def cleanup(self):
+        # this method should restore the state back to __init__
+        glwidget = self.parent()
+        glwidget.makeCurrent()
 
-        npts = len(x)
-        if npts < 2:
-            return []
+        self.m_vbo.destroy()
+        self.m_vao.destroy()
 
-        segs = []
+        self.context = None
+        self.vbo_nbytes = 0
+        self.render_cache = None
 
-        if connect in ['all', 'finite', 'array']:
-            memory = self.array(npts - 1)
+        glwidget.doneCurrent()
+
+    def verticesChanged(self, curve):
+        self.render_cache = None
+
+def arrayToLineSegments(x, y, connect, finiteCheck, out=None):
+    if out is None:
+        out = Qt.internals.PrimitiveArray(QtCore.QLineF, 4)
+
+    # analogue of arrayToQPath taking the same parameters
+    if len(x) < 2:
+        out.resize(0)
+        return out
+
+    connect_array = None
+    if isinstance(connect, np.ndarray):
+        # the last element is not used
+        connect_array, connect = np.asarray(connect[:-1], dtype=bool), 'array'
+
+    all_finite = True
+    if finiteCheck or connect == 'finite':
+        mask = np.isfinite(x) & np.isfinite(y)
+        all_finite = np.all(mask)
+
+    if connect == 'all':
+        if not all_finite:
+            # remove non-finite points, if any
+            x = x[mask]
+            y = y[mask]
+
+    elif connect == 'finite':
+        if all_finite:
+            connect = 'all'
+        else:
+            # each non-finite point affects the segment before and after
+            connect_array = mask[:-1] & mask[1:]
+
+    elif connect == 'pairs':
+        if not all_finite:
+            # ensure that we have an even number of elements
+            npairs = len(x) // 2
+            mask = mask[:npairs*2]
+            # remove pair if at least one point within pair is non-finite
+            mask.reshape((-1, 2))[:] = (mask[0::2] & mask[1::2])[:, np.newaxis]
+            x = x[:npairs*2][mask]
+            y = y[:npairs*2][mask]
+
+    elif connect == 'array':
+        if not all_finite:
+            # replicate the behavior of arrayToQPath
+            backfill_idx = fn._compute_backfill_indices(mask)
+            x = x[backfill_idx]
+            y = y[backfill_idx]
+
+    if connect == 'all':
+        nsegs = len(x) - 1
+        out.resize(nsegs)
+        if nsegs:
+            memory = out.ndarray()
             memory[:, 0] = x[:-1]
-            memory[:, 1] = y[:-1]
             memory[:, 2] = x[1:]
+            memory[:, 1] = y[:-1]
             memory[:, 3] = y[1:]
-            segs = self.instances(npts - 1)
-            if connect_array is not None:
-                segs = list(itertools.compress(segs, connect_array.tolist()))
 
-        elif connect in ['pairs']:
-            npairs = npts // 2
-            memory = self.array(npairs).reshape((-1, 2))
-            memory[:, 0] = x[:npairs * 2]
-            memory[:, 1] = y[:npairs * 2]
-            segs = self.instances(npairs)
+    elif connect == 'pairs':
+        nsegs = len(x) // 2
+        out.resize(nsegs)
+        if nsegs:
+            memory = out.ndarray()
+            memory = memory.reshape((-1, 2))
+            memory[:, 0] = x[:nsegs * 2]
+            memory[:, 1] = y[:nsegs * 2]
 
-        return segs
+    elif connect_array is not None:
+        # the following are handled here
+        # - 'array'
+        # - 'finite' with non-finite elements
+        nsegs = np.count_nonzero(connect_array)
+        out.resize(nsegs)
+        if nsegs:
+            memory = out.ndarray()
+            memory[:, 0] = x[:-1][connect_array]
+            memory[:, 2] = x[1:][connect_array]
+            memory[:, 1] = y[:-1][connect_array]
+            memory[:, 3] = y[1:][connect_array]
 
+    else:
+        nsegs = 0
+        out.resize(nsegs)
+
+    return out
 
 class PlotCurveItem(GraphicsObject):
     """
@@ -151,12 +263,14 @@ class PlotCurveItem(GraphicsObject):
             'connect': 'all',
             'mouseWidth': 8, # width of shape responding to mouse click
             'compositionMode': None,
-            'skipFiniteCheck': False
+            'skipFiniteCheck': False,
+            'segmentedLineMode': getConfigOption('segmentedLineMode'),
         }
         if 'pen' not in kargs:
             self.opts['pen'] = fn.mkPen('w')
         self.setClickable(kargs.get('clickable', False))
         self.setData(*args, **kargs)
+        self.glstate = None
 
     def implements(self, interface=None):
         ints = ['plotData']
@@ -236,6 +350,8 @@ class PlotCurveItem(GraphicsObject):
         ## If an orthogonal range is specified, mask the data now
         if orthoRange is not None:
             mask = (d2 >= orthoRange[0]) * (d2 <= orthoRange[1])
+            if self.opts.get("stepMode", None) == "center":
+                mask = mask[:-1]  # len(y) == len(x) - 1 when stepMode is center
             d = d[mask]
             #d2 = d2[mask]
 
@@ -249,13 +365,13 @@ class PlotCurveItem(GraphicsObject):
             with warnings.catch_warnings(): 
                 # All-NaN data is acceptable; Explicit numpy warning is not needed.
                 warnings.simplefilter("ignore")
-                b = (np.nanmin(d), np.nanmax(d))
+                b = ( float(np.nanmin(d)), float(np.nanmax(d)) ) # enforce float format for bounds, even if data format is different
             if math.isinf(b[0]) or math.isinf(b[1]):
                 mask = np.isfinite(d)
                 d = d[mask]
                 if len(d) == 0:
                     return (None, None)
-                b = (d.min(), d.max())
+                b = ( float(d.min()), float(d.max()) ) # enforce float format for bounds, even if data format is different
 
         elif frac <= 0.0:
             raise Exception("Value for parameter 'frac' must be > 0. (got %s)" % str(frac))
@@ -265,16 +381,20 @@ class PlotCurveItem(GraphicsObject):
             d = d[mask]
             if len(d) == 0:
                 return (None, None)
-            b = np.percentile(d, [50 * (1 - frac), 50 * (1 + frac)])
+            b = np.percentile(d, [50 * (1 - frac), 50 * (1 + frac)]) # percentile result is always float64 or larger
 
         ## adjust for fill level
-        if ax == 1 and self.opts['fillLevel'] not in [None, 'enclosed']:
-            b = (min(b[0], self.opts['fillLevel']), max(b[1], self.opts['fillLevel']))
+        fill_level = self.opts['fillLevel']
+        if ax == 1 and fill_level is not None:
+            if isinstance(fill_level, (int, float)):
+                b = (float( min(b[0], fill_level) ), float( max(b[1], fill_level))) # enforce float format for bounds, even if data format is different
+            elif isinstance(fill_level, np.ndarray):
+                b = (float(min(b[0], fill_level.min())), float(max(b[1], fill_level.max())))
 
         ## Add pen width only if it is non-cosmetic.
         pen = self.opts['pen']
         spen = self.opts['shadowPen']
-        if not pen.isCosmetic():
+        if pen is not None and not pen.isCosmetic() and pen.style() != QtCore.Qt.PenStyle.NoPen:
             b = (b[0] - pen.widthF()*0.7072, b[1] + pen.widthF()*0.7072)
         if spen is not None and not spen.isCosmetic() and spen.style() != QtCore.Qt.PenStyle.NoPen:
             b = (b[0] - spen.widthF()*0.7072, b[1] + spen.widthF()*0.7072)
@@ -286,7 +406,7 @@ class PlotCurveItem(GraphicsObject):
         pen = self.opts['pen']
         spen = self.opts['shadowPen']
         w = 0
-        if pen.isCosmetic():
+        if  pen is not None and pen.isCosmetic() and pen.style() != QtCore.Qt.PenStyle.NoPen:
             w += pen.widthF()*0.7072
         if spen is not None and spen.isCosmetic() and spen.style() != QtCore.Qt.PenStyle.NoPen:
             w = max(w, spen.widthF()*0.7072)
@@ -371,7 +491,7 @@ class PlotCurveItem(GraphicsObject):
 
     def setPen(self, *args, **kargs):
         """Set the pen used to draw the curve."""
-        if args[0] is None:
+        if args and args[0] is None:
             self.opts['pen'] = None
         else:
             self.opts['pen'] = fn.mkPen(*args, **kargs)
@@ -385,7 +505,7 @@ class PlotCurveItem(GraphicsObject):
         pen to be visible. Arguments are passed to 
         :func:`mkPen <pyqtgraph.mkPen>`
         """
-        if args[0] is None:
+        if args and args[0] is None:
             self.opts['shadowPen'] = None
         else:
             self.opts['shadowPen'] = fn.mkPen(*args, **kargs)
@@ -397,7 +517,7 @@ class PlotCurveItem(GraphicsObject):
         Sets the brush used when filling the area under the curve. All 
         arguments are passed to :func:`mkBrush <pyqtgraph.mkBrush>`.
         """
-        if args[0] is None:
+        if args and args[0] is None:
             self.opts['brush'] = None
         else:
             self.opts['brush'] = fn.mkBrush(*args, **kargs)
@@ -500,7 +620,7 @@ class PlotCurveItem(GraphicsObject):
             if isinstance(data, list):
                 data = np.array(data)
                 kargs[k] = data
-            if not isinstance(data, np.ndarray) or data.ndim > 1:
+            if not isinstance(data, np.ndarray):
                 raise Exception("Plot data must be 1D ndarray.")
             if data.dtype.kind == 'c':
                 raise Exception("Can not plot complex data types.")
@@ -531,15 +651,16 @@ class PlotCurveItem(GraphicsObject):
             if len(self.xData) != len(self.yData)+1:  ## allow difference of 1 for step mode plots
                 raise Exception("len(X) must be len(Y)+1 since stepMode=True (got %s and %s)" % (self.xData.shape, self.yData.shape))
         else:
-            if self.xData.shape != self.yData.shape:  ## allow difference of 1 for step mode plots
+            if self.yData.ndim == 1 and self.xData.shape != self.yData.shape:  ## allow difference of 1 for step mode plots
                 raise Exception("X and Y arrays must be the same shape--got %s and %s." % (self.xData.shape, self.yData.shape))
+            elif self.yData.ndim == 2 and self.yData.shape[1] != self.xData.shape[0]:
+                raise Exception("X array and Y matrix must be the same shape--got %s and ( ,%s)." % (self.xData.shape, self.yData.shape[1]))
 
         self.path = None
         self.fillPath = None
         self._fillPathList = None
         self._mouseShape = None
-        self._renderSegmentList = None
-
+        self._lineSegmentsRendered = None
         if 'name' in kargs:
             self.opts['name'] = kargs['name']
         if 'connect' in kargs:
@@ -596,6 +717,9 @@ class PlotCurveItem(GraphicsObject):
         return x, y
 
     def generatePath(self, x, y):
+        if y.ndim == 2:
+            return [self.generatePath(x, yi) for yi in y]
+
         if self.opts['stepMode']:
             x, y = self._generateStepModeData(
                 self.opts['stepMode'],
@@ -624,7 +748,35 @@ class PlotCurveItem(GraphicsObject):
 
         return self.path
 
+    def setSegmentedLineMode(self, mode):
+        """
+        Sets the mode that decides whether or not lines are drawn as segmented lines. Drawing lines
+        as segmented lines is more performant than the standard drawing method with continuous
+        lines.
+
+        Parameters
+        ----------
+        mode : str
+               ``'auto'`` (default) segmented lines are drawn if the pen's width > 1, pen style is a
+               solid line, the pen color is opaque and anti-aliasing is not enabled.
+
+               ``'on'`` lines are always drawn as segmented lines
+
+               ``'off'`` lines are never drawn as segmented lines, i.e. the drawing
+               method with continuous lines is used
+        """
+        if mode not in ('auto', 'on', 'off'):
+            raise ValueError(f'segmentedLineMode must be "auto", "on" or "off", got {mode} instead')
+        self.opts['segmentedLineMode'] = mode
+        self.invalidateBounds()
+        self.update()
+
     def _shouldUseDrawLineSegments(self, pen):
+        mode = self.opts['segmentedLineMode']
+        if mode in ('on',):
+            return True
+        if mode in ('off',):
+            return False
         return (
             pen.widthF() > 1.0
             # non-solid pen styles need single polyline to be effective
@@ -634,14 +786,16 @@ class PlotCurveItem(GraphicsObject):
             and pen.isSolid()   # pen.brush().style() == Qt.BrushStyle.SolidPattern
             # ends of adjacent line segments overlapping is visible when not opaque
             and pen.color().alphaF() == 1.0
+            # anti-aliasing introduces transparent pixels and therefore also causes visible overlaps
+            # for adjacent line segments
+            and not self.opts['antialias']
         )
 
-    def _getLineSegments(self):
-        if not hasattr(self, '_lineSegments'):
-            self._lineSegments = LineSegments()
-
-        if self._renderSegmentList is None:
+    def _getLineSegments(self, i=None):
+        if not self._lineSegmentsRendered:
             x, y = self.getData()
+            if i is not None:
+                y = y[i]
             if self.opts['stepMode']:
                 x, y = self._generateStepModeData(
                     self.opts['stepMode'],
@@ -650,16 +804,19 @@ class PlotCurveItem(GraphicsObject):
                     baseline=self.opts['fillLevel']
                 )
 
-            self._renderSegmentList = self._lineSegments.arrayToLineSegments(
+            self._lineSegments = arrayToLineSegments(
                 x,
                 y,
                 connect=self.opts['connect'],
-                finiteCheck=not self.opts['skipFiniteCheck']
+                finiteCheck=not self.opts['skipFiniteCheck'],
+                out=self._lineSegments
             )
 
-        return self._renderSegmentList
+            self._lineSegmentsRendered = True
 
-    def _getClosingSegments(self):
+        return self._lineSegments.drawargs()
+
+    def _getClosingSegments(self, i=None):
         # this is only used for fillOutline
         # no point caching with so few elements generated
         segments = []
@@ -668,6 +825,8 @@ class PlotCurveItem(GraphicsObject):
 
         baseline = self.opts['fillLevel']
         x, y = self.getData()
+        if i is not None:
+            y = y[i]
         lx, rx = x[[0, -1]]
         ly, ry = y[[0, -1]]
 
@@ -679,42 +838,51 @@ class PlotCurveItem(GraphicsObject):
 
         return segments
 
-    def _getFillPath(self):
-        if self.fillPath is not None:
-            return self.fillPath
-
-        path = QtGui.QPainterPath(self.getPath())
+    def _getFillPath(self, i=None):
+        self_path = self.getPath()
+        p = self_path
+        if isinstance(self_path, list) and i is not None:
+            p = self_path[i]
+        path = QtGui.QPainterPath(p)
         self.fillPath = path
-        if self.opts['fillLevel'] == 'enclosed':
-            return path
-
-        baseline = self.opts['fillLevel']
+        if i is None:
+            if self.opts['fillLevel'] == 'enclosed':
+                return path
+        else:
+            if self.opts['fillLevel'][i] == 'enclosed':
+                return path
+        baseline = None
+        if isinstance(self_path, list) and i is not None:            
+            baseline = self.opts['fillLevel'][i]
+        else:
+            baseline = self.opts['fillLevel']
         x, y = self.getData()
+        if i is not None:
+            y = y[i]
         lx, rx = x[[0, -1]]
         ly, ry = y[[0, -1]]
-
         if ry != baseline:
             path.lineTo(rx, baseline)
         path.lineTo(lx, baseline)
         if ly != baseline:
             path.lineTo(lx, ly)
 
-        return path
-
     def _shouldUseFillPathList(self):
         connect = self.opts['connect']
         return (
             # not meaningful to fill disjoint lines
-            isinstance(connect, str) and connect == 'all'
+            isinstance(connect, str) and connect in ['all', 'finite']
             # guard against odd-ball argument 'enclosed'
             and isinstance(self.opts['fillLevel'], (int, float))
         )
 
-    def _getFillPathList(self):
+    def _getFillPathList(self, widget, i=None):
         if self._fillPathList is not None:
             return self._fillPathList
 
         x, y = self.getData()
+        if i is not None:
+            y = y[i]
         if self.opts['stepMode']:
             x, y = self._generateStepModeData(
                 self.opts['stepMode'],
@@ -724,22 +892,54 @@ class PlotCurveItem(GraphicsObject):
                 baseline=None
             )
 
-        if not self.opts['skipFiniteCheck']:
+        # Set suitable chunk size for current configuration:
+        #   * Without OpenGL split in small chunks
+        #   * With OpenGL split in rather big chunks
+        #     Note: when OpenGL mode is enabled, we should normally be using the
+        #     'paintGL' method, and should not even reach here.
+        # Values were found using 'PlotSpeedTest.py' example, see #2257.
+        chunksize = 50 if not isinstance(widget, QtWidgets.QOpenGLWidget) else 5000
+
+        connect_kind = self.opts['connect']
+        if isinstance(connect_kind, np.ndarray):
+            connect_kind = "array"
+
+        fillLevel = self.opts['fillLevel']
+        self._fillPathList = []
+        sidx = []
+        slen = []
+
+        if connect_kind == "all":
             mask = np.isfinite(x) & np.isfinite(y)
             if not mask.all():
-                # we are only supporting connect='all',
-                # so remove non-finite values
-                x = x.compress(mask)
-                y = y.compress(mask)
+                # remove non-finite values
+                x = x[mask]
+                y = y[mask]
+            sidx = [0]
+            slen = [len(x)]
 
-        if len(x) < 2:
-            return []
+        elif connect_kind == "finite":
+            isfinite = np.isfinite(x) & np.isfinite(y)
+            nonfinite_locs = np.nonzero(~isfinite)[0]
+            # pretend that there's a nonfinite before and after the array
+            nonfinite_locs = np.concatenate(([-1], nonfinite_locs, [len(x)]))
+            sidx = nonfinite_locs[:-1] + 1      # start index of segment
+            slen = np.diff(nonfinite_locs) - 1  # length of segment
 
-        paths = self._fillPathList = []
+        for s, l in zip(sidx, slen):
+            if l < 2:
+                continue
+            xchunk = x[s:s+l]
+            ychunk = y[s:s+l]
+            pathlist = self._construct_finite_segment_FillPathList(xchunk, ychunk, fillLevel, chunksize)
+            self._fillPathList.extend(pathlist)
+
+        return self._fillPathList
+
+    def _construct_finite_segment_FillPathList(self, x, y, baseline, chunksize):
+        paths = []
         offset = 0
-        chunksize = 50          # determined empirically
         xybuf = np.empty((chunksize+3, 2))
-        baseline = self.opts['fillLevel']
 
         while offset < len(x) - 1:
             subx = x[offset:offset + chunksize]
@@ -763,10 +963,32 @@ class PlotCurveItem(GraphicsObject):
         if self.xData is None or len(self.xData) == 0:
             return
 
-        if getConfigOption('enableExperimental'):
-            if HAVE_OPENGL and isinstance(widget, QtWidgets.QOpenGLWidget):
-                self.paintGL(p, opt, widget)
-                return
+        # opengl fill mode supports filling to a fillLevel
+        # for connect="all" and connect="finite" only.
+        opengl_supported_fill = (
+            self.opts['fillLevel'] is None  # not filling is always supported
+            or (
+                isinstance(self.opts['fillLevel'], (int, float))
+                and isinstance(self.opts['connect'], str)
+                and self.opts['connect'] in ['all', 'finite']
+                and not self.opts['fillOutline']
+            )
+        )
+
+        if (
+            isinstance(widget, OpenGLHelpers.GraphicsViewGLWidget)
+            and opengl_supported_fill
+            and not self.opts['stepMode']
+        ):
+            if self.glstate is None:
+                self.glstate = OpenGLState(widget)
+                self.sigPlotChanged.connect(self.glstate.verticesChanged)
+            p.beginNativePainting()
+            try:
+                self.paintGL(widget)
+            finally:
+                p.endNativePainting()
+            return
 
         if self._exportOpts is not False:
             aa = self._exportOpts.get('antialias', True)
@@ -779,143 +1001,282 @@ class PlotCurveItem(GraphicsObject):
         if cmode is not None:
             p.setCompositionMode(cmode)
 
-        do_fill = self.opts['brush'] is not None and self.opts['fillLevel'] is not None
+        brush = self.opts['brush']
+        do_fill = (
+            self.opts['fillLevel'] is not None
+            and not (brush is None or brush.style() == QtCore.Qt.BrushStyle.NoBrush)
+        )
         do_fill_outline = do_fill and self.opts['fillOutline']
+        do_y_matrix = isinstance(self.yData, np.ndarray) and self.yData.ndim > 1
+        total_lines = np.arange(self.yData.shape[0]) if do_y_matrix else [None]
 
         if do_fill:
-            if self._shouldUseFillPathList():
-                paths = self._getFillPathList()
-            else:
-                paths = [self._getFillPath()]
-
-            profiler('generate fill path')
-            for path in paths:
-                p.fillPath(path, self.opts['brush'])
-            profiler('draw fill path')
-
-        # Avoid constructing a shadow pen if it's not used.
-        if self.opts.get('shadowPen') is not None:
-            if isinstance(self.opts.get('shadowPen'), QtGui.QPen):
-                sp = self.opts['shadowPen']
-            else:
-                sp = fn.mkPen(self.opts['shadowPen'])
-
-            if sp.style() != QtCore.Qt.PenStyle.NoPen:
-                p.setPen(sp)
-                if self._shouldUseDrawLineSegments(sp):
-                    p.drawLines(self._getLineSegments())
-                    if do_fill_outline:
-                        p.drawLines(self._getClosingSegments())
+            for line in total_lines:
+                if self._shouldUseFillPathList():                   
+                    paths = self._getFillPathList(widget, line)
                 else:
-                    if do_fill_outline:
-                        p.drawPath(self._getFillPath())
+                    paths = [self._getFillPath(line)]
+                profiler('generate fill path')
+                for path in paths:
+                    p.fillPath(path, self.opts['brush'])
+                profiler('draw fill path')
+
+        for pen_kind in ['shadowPen', 'pen']:
+            pen = self.opts[pen_kind]
+            if pen is None or pen.style() == QtCore.Qt.PenStyle.NoPen:
+                continue
+            p.setPen(pen)
+
+            if self._shouldUseDrawLineSegments(pen):
+                if do_y_matrix:
+                    for line in total_lines:
+                        p.drawLines(self._getLineSegments(line))
+                else:
+                    p.drawLines(self._getLineSegments())
+                if do_fill_outline:
+                    if do_y_matrix:
+                        for line in total_lines:
+                            p.drawLines(self._getClosingSegments(line))
                     else:
-                        p.drawPath(self.getPath())
-
-        cp = self.opts['pen']
-        if not isinstance(cp, QtGui.QPen):
-            cp = fn.mkPen(cp)
-
-        p.setPen(cp)
-        if self._shouldUseDrawLineSegments(cp):
-            p.drawLines(self._getLineSegments())
-            if do_fill_outline:
-                p.drawLines(self._getClosingSegments())
-        else:
-            if do_fill_outline:
-                p.drawPath(self._getFillPath())
+                        p.drawLines(self._getClosingSegments())
             else:
-                p.drawPath(self.getPath())
+                if do_fill_outline:
+                    for line in total_lines:
+                        if self._shouldUseFillPathList():                   
+                            paths = self._getFillPathList(line)                                    
+                        else:
+                            paths = [self._getFillPath(line)]
+                        for path in paths:
+                            p.drawPath(path)
+                else:
+                    path = self.getPath()
+                if isinstance(path, list):
+                    for ipath in path:
+                        p.drawPath(ipath)
+                else:
+                    p.drawPath(self.getPath())
+
         profiler('drawPath')
 
-    def paintGL(self, p, opt, widget):
-        p.beginNativePainting()
-        import OpenGL.GL as gl
+    def paintGL(self, widget):
+        if (view := self.getViewBox()) is None:
+            return
 
-        if sys.platform == 'win32':
-            # If Qt is built to dynamically load OpenGL, then the projection and
-            # modelview matrices are not setup.
-            # https://doc.qt.io/qt-6/windows-graphics.html
-            # https://code.woboq.org/qt6/qtbase/src/opengl/qopenglpaintengine.cpp.html
-            # Technically, we could enable it for all platforms, but for now, just
-            # enable it where it is required, i.e. Windows
-            gl.glMatrixMode(gl.GL_PROJECTION)
-            gl.glLoadIdentity()
-            gl.glOrtho(0, widget.width(), widget.height(), 0, -999999, 999999)
-            gl.glMatrixMode(gl.GL_MODELVIEW)
-            mat = QtGui.QMatrix4x4(self.sceneTransform())
-            gl.glLoadMatrixf(np.array(mat.data(), dtype=np.float32))
+        x, y = self.getData()
+        num_pts = len(x)
+        valid_pts = num_pts
 
-        ## set clipping viewport
-        view = self.getViewBox()
-        if view is not None:
-            rect = view.mapRectToItem(self, view.boundingRect())
-            #gl.glViewport(int(rect.x()), int(rect.y()), int(rect.width()), int(rect.height()))
+        # minimum 2 pts to draw anything
+        if num_pts < 2:
+            return
 
-            #gl.glTranslate(-rect.x(), -rect.y(), 0)
+        glstate = self.glstate
+        glstate.setup(widget.context())
+        glf = widget.getFunctions()
+        program = widget.retrieveProgram("PlotCurveItem")
 
-            gl.glEnable(gl.GL_STENCIL_TEST)
-            gl.glColorMask(gl.GL_FALSE, gl.GL_FALSE, gl.GL_FALSE, gl.GL_FALSE) # disable drawing to frame buffer
-            gl.glDepthMask(gl.GL_FALSE)  # disable drawing to depth buffer
-            gl.glStencilFunc(gl.GL_NEVER, 1, 0xFF)
-            gl.glStencilOp(gl.GL_REPLACE, gl.GL_KEEP, gl.GL_KEEP)
+        # OpenGL only sees the float32 version of our data, and this may cause
+        # precision issues. To mitigate this, we shift the origin of our data
+        # to the center of its bounds.
+        # Note that xc, yc are double precision Python floats. Subtracting them
+        # from the x, y ndarrays will automatically upcast the latter to double
+        # precision.
+        if glstate.render_cache is None:
+            # the origin point is calculated once per data change.
+            # once the data is uploaded, the origin point is fixed.
+            center = self.boundingRect().center()
+            xc, yc = center.x(), center.y()
+        else:
+            xc, yc, *_ = glstate.render_cache
 
-            ## draw stencil pattern
-            gl.glStencilMask(0xFF)
-            gl.glClear(gl.GL_STENCIL_BUFFER_BIT)
-            gl.glBegin(gl.GL_TRIANGLES)
-            gl.glVertex2f(rect.x(), rect.y())
-            gl.glVertex2f(rect.x()+rect.width(), rect.y())
-            gl.glVertex2f(rect.x(), rect.y()+rect.height())
-            gl.glVertex2f(rect.x()+rect.width(), rect.y()+rect.height())
-            gl.glVertex2f(rect.x()+rect.width(), rect.y())
-            gl.glVertex2f(rect.x(), rect.y()+rect.height())
-            gl.glEnd()
+        proj = QtGui.QMatrix4x4()
+        proj.ortho(widget.rect())
+        tr = self.sceneTransform()
+        tr.translate(xc, yc)
+        mvp = proj * QtGui.QMatrix4x4(tr)
 
-            gl.glColorMask(gl.GL_TRUE, gl.GL_TRUE, gl.GL_TRUE, gl.GL_TRUE)
-            gl.glDepthMask(gl.GL_TRUE)
-            gl.glStencilMask(0x00)
-            gl.glStencilFunc(gl.GL_EQUAL, 1, 0xFF)
+        vbo_nbytes_needed = num_pts * 2 * 4
 
-        try:
-            x, y = self.getData()
-            pos = np.empty((len(x), 2), dtype=np.float32)
-            pos[:,0] = x
-            pos[:,1] = y
-            gl.glEnableClientState(gl.GL_VERTEX_ARRAY)
-            try:
-                gl.glVertexPointerf(pos)
-                pen = fn.mkPen(self.opts['pen'])
-                gl.glColor4f(*pen.color().getRgbF())
-                width = pen.width()
-                if pen.isCosmetic() and width < 1:
-                    width = 1
-                gl.glPointSize(width)
-                gl.glLineWidth(width)
+        connect_kind = self.opts["connect"]
+        if isinstance(connect_kind, np.ndarray):
+            connect_kind = "array"
+            vbo_nbytes_needed = ((num_pts-1) * 2) * 2 * 4
 
-                # enable antialiasing if requested
-                if self._exportOpts is not False:
-                    aa = self._exportOpts.get('antialias', True)
+        # filling is only supported for 'all' and 'finite'.
+        # it requires an additional 2 * num_pts of storage
+        # to create the triangle strip to be filled.
+        fillLevel = None
+        if connect_kind in ['all', 'finite']:
+            if isinstance(self.opts['fillLevel'], (int, float)):
+                fillLevel = float(self.opts['fillLevel'])
+                vbo_nbytes_needed += (2 * num_pts) * 2 * 4
+
+        # resize (and invalidate) gpu buffers if needed.
+        # a reallocation can only occur together with a change in data.
+        # i.e. reallocation ==> change in data (render_cache is None)
+        if vbo_nbytes_needed != glstate.vbo_nbytes:
+            glstate.m_vbo.bind()
+            glstate.m_vbo.allocate(vbo_nbytes_needed)
+            glstate.m_vbo.release()
+            glstate.vbo_nbytes = vbo_nbytes_needed
+
+        if glstate.render_cache is None:
+            buf = None
+
+            if connect_kind == "pairs":
+                glstate.render_cache = (xc, yc, valid_pts,)
+
+                buf = np.empty((valid_pts, 2), dtype=np.float32)
+                pos = buf
+                pos[:, 0] = x - xc
+                pos[:, 1] = y - yc
+
+            elif connect_kind == "all":
+                if not self.opts["skipFiniteCheck"]:
+                    isfinite = np.isfinite(y)
+                    if x.dtype.kind == 'f':
+                        isfinite &= np.isfinite(x)
+                    valid_pts = np.sum(isfinite)
+                glstate.render_cache = (xc, yc, valid_pts,)
+
+                fill_pts = 0 if fillLevel is None else 2 * valid_pts
+                buf = np.empty((valid_pts + fill_pts, 2), dtype=np.float32)
+                pos = buf[:valid_pts, :]
+                if valid_pts == num_pts:
+                    pos[:, 0] = x - xc
+                    pos[:, 1] = y - yc
                 else:
-                    aa = self.opts['antialias']
-                if aa:
-                    gl.glEnable(gl.GL_LINE_SMOOTH)
-                    gl.glEnable(gl.GL_BLEND)
-                    gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
-                    gl.glHint(gl.GL_LINE_SMOOTH_HINT, gl.GL_NICEST)
-                else:
-                    gl.glDisable(gl.GL_LINE_SMOOTH)
+                    pos[:, 0] = x[isfinite] - xc
+                    pos[:, 1] = y[isfinite] - yc
 
-                gl.glDrawArrays(gl.GL_LINE_STRIP, 0, pos.shape[0])
-            finally:
-                gl.glDisableClientState(gl.GL_VERTEX_ARRAY)
-        finally:
-            p.endNativePainting()
+                if fill_pts:
+                    fillpos = buf[valid_pts:, :]
+                    fillpos[0::2, 0] = pos[:, 0]
+                    fillpos[0::2, 1] = pos[:, 1]
+                    fillpos[1::2, 0] = pos[:, 0]
+                    fillpos[1::2, 1] = fillLevel - yc
+
+            elif connect_kind == "finite":
+                isfinite = np.isfinite(y)
+                if x.dtype.kind == 'f':
+                    isfinite &= np.isfinite(x)
+                nonfinite_locs = np.nonzero(~isfinite)[0]
+                # pretend that there's a nonfinite before and after the array
+                nonfinite_locs = np.concatenate(([-1], nonfinite_locs, [num_pts]))
+                sidx = nonfinite_locs[:-1] + 1      # start index of segment
+                slen = np.diff(nonfinite_locs) - 1  # length of segment
+                mask = slen >= 2
+                sidx = sidx[mask].tolist()
+                slen = slen[mask].tolist()
+                glstate.render_cache = (xc, yc, valid_pts, sidx, slen)
+
+                fill_pts = 0 if fillLevel is None else 2 * valid_pts
+                buf = np.empty((valid_pts + fill_pts, 2), dtype=np.float32)
+                pos = buf[:valid_pts, :]
+                pos[:, 0] = x - xc
+                pos[:, 1] = y - yc
+
+                if fill_pts:
+                    fillpos = buf[valid_pts:, :]
+                    fillpos[0::2, 0] = pos[:, 0]
+                    fillpos[0::2, 1] = pos[:, 1]
+                    fillpos[1::2, 0] = pos[:, 0]
+                    fillpos[1::2, 1] = fillLevel - yc
+
+            elif connect_kind == "array":
+                mask = np.asarray(self.opts["connect"], dtype=bool)[:num_pts-1]
+                valid_pts = 2 * np.sum(mask)
+                glstate.render_cache = (xc, yc, valid_pts,)
+
+                buf = np.empty((valid_pts, 2), dtype=np.float32)
+                pos = buf
+                xshift = x - xc
+                yshift = y - yc
+                pos[0::2, 0] = xshift[:-1][mask]
+                pos[1::2, 0] = xshift[1:][mask]
+                pos[0::2, 1] = yshift[:-1][mask]
+                pos[1::2, 1] = yshift[1:][mask]
+
+            if buf is not None:
+                glstate.m_vbo.bind()
+                glstate.m_vbo.write(0, buf, buf.nbytes)
+                glstate.m_vbo.release()
+
+
+        widget.setViewboxClip(view)
+
+        glstate.m_vao.bind()
+        program.bind()
+        OpenGLHelpers.setUniformValue(program, "u_mvp", mvp)
+
+        # filling occurs first so that the curve outline gets painted over it.
+        for brush in [self.opts["brush"]]:
+            if fillLevel is None:
+                continue
+            if brush is None or brush.style() == QtCore.Qt.BrushStyle.NoBrush:
+                continue
+            OpenGLHelpers.setUniformValue(program, "u_color", brush.color())
+
+            glf.glEnable(GLC.GL_BLEND)
+            glf.glBlendFuncSeparate(GLC.GL_SRC_ALPHA, GLC.GL_ONE_MINUS_SRC_ALPHA, 1, GLC.GL_ONE_MINUS_SRC_ALPHA)
+
+            if connect_kind == 'all':
+                *_, valid_pts = glstate.render_cache
+                glf.glDrawArrays(GLC.GL_TRIANGLE_STRIP, valid_pts, 2 * valid_pts)
+            elif connect_kind == 'finite':
+                *_, valid_pts, sidx, slen = glstate.render_cache
+                for s, l in zip(sidx, slen):
+                    glf.glDrawArrays(GLC.GL_TRIANGLE_STRIP, valid_pts + 2 * s, 2 * l)
+
+            glf.glDisable(GLC.GL_BLEND)
+
+        # enable antialiasing if requested
+        if self._exportOpts is not False:
+            aa = self._exportOpts.get('antialias', True)
+        else:
+            aa = self.opts['antialias']
+        if aa:
+            glf.glEnable(GLC.GL_LINE_SMOOTH)
+            glf.glEnable(GLC.GL_BLEND)
+            glf.glBlendFuncSeparate(GLC.GL_SRC_ALPHA, GLC.GL_ONE_MINUS_SRC_ALPHA, 1, GLC.GL_ONE_MINUS_SRC_ALPHA)
+            glf.glHint(GLC.GL_LINE_SMOOTH_HINT, GLC.GL_NICEST)
+        else:
+            glf.glDisable(GLC.GL_LINE_SMOOTH)
+
+        for pen_kind in ["shadowPen", "pen"]:
+            pen = self.opts[pen_kind]
+            if pen is None or pen.style() == QtCore.Qt.PenStyle.NoPen:
+                continue
+            width = pen.widthF()
+            if pen.isCosmetic() and width < 1:
+                width = 1
+
+            glf.glLineWidth(width)
+            OpenGLHelpers.setUniformValue(program, "u_color", pen.color())
+
+            match connect_kind:
+                case "pairs" | "array":
+                    *_, valid_pts = glstate.render_cache
+                    glf.glDrawArrays(GLC.GL_LINES, 0, valid_pts)
+                case "all":
+                    *_, valid_pts = glstate.render_cache
+                    glf.glDrawArrays(GLC.GL_LINE_STRIP, 0, valid_pts)
+                case "finite":
+                    *_, sidx, slen = glstate.render_cache
+                    if hasattr(glf, "glMultiDrawArrays") and not glstate.context.isOpenGLES():
+                        glf.glMultiDrawArrays(GLC.GL_LINE_STRIP, sidx, slen, len(sidx))
+                    else:
+                        # PyQt{5,6} didn't include glMultiDrawArrays
+                        for s, l in zip(sidx, slen):
+                            glf.glDrawArrays(GLC.GL_LINE_STRIP, s, l)
+
+        glstate.m_vao.release()
 
     def clear(self):
         self.xData = None  ## raw values
         self.yData = None
-        self._renderSegmentList = None
+        self._lineSegments = None
+        self._lineSegmentsRendered = False
         self.path = None
         self.fillPath = None
         self._fillPathList = None

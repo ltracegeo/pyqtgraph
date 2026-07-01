@@ -1,22 +1,32 @@
-import sys
+from unittest.mock import MagicMock
 
 import numpy as np
 
 import pyqtgraph as pg
 import pyqtgraph.parametertree as pt
 from pyqtgraph.functions import eq
+from pyqtgraph.parametertree.parameterTypes import ChecklistParameterItem
 from pyqtgraph.Qt import QtCore, QtGui
+
+import pytest
 
 app = pg.mkQApp()
 
+
 def _getWidget(param):
     return list(param.items.keys())[0].widget
+
+
+def test_typeless_param():
+    p = pt.Parameter.create(name='test', type=None, value=set())
+    p.setValue(range(4))
 
 
 def test_opts():
     paramSpec = [
         dict(name='bool', type='bool', readonly=True),
         dict(name='color', type='color', readonly=True),
+        dict(name='float', type='float', limits=None),
     ]
 
     param = pt.Parameter.create(name='params', type='group', children=paramSpec)
@@ -58,13 +68,11 @@ def test_types():
 
     # int
     types = ['int0', 'int', 'float', 'bigfloat', 'npfloat', 'npint', 'bool']
-    inttyps = int if sys.version[0] >= '3' else (int, long) 
-    check_param_types(param.child('int'), inttyps, int, 0, all_objs, types)
+    check_param_types(param.child('int'), int, int, 0, all_objs, types)
     
     # str  (should be able to make a string out of any type)
     types = all_objs.keys()
-    strtyp = str if sys.version[0] >= '3' else unicode
-    check_param_types(param.child('str'), strtyp, str, '', all_objs, types)
+    check_param_types(param.child('str'), str, str, '', all_objs, types)
     
     # bool  (should be able to make a boolean out of any type?)
     types = all_objs.keys()
@@ -94,14 +102,14 @@ def check_param_types(param, types, map_func, init, objs, keys):
             param.setValue().
         keys : list
             The list of keys indicating the valid objects in *objs*. When
-            param.setValue() is teasted with each value from *objs*, we expect
+            param.setValue() is tested with each value from *objs*, we expect
             an exception to be raised if the associated key is not in *keys*.
     """
     val = param.value()
     if not isinstance(types, tuple):
         types = (types,)
     assert val == init and type(val) in types
-    
+
     # test valid input types
     good_inputs = [objs[k] for k in keys if k in objs]
     good_outputs = map(map_func, good_inputs)
@@ -111,7 +119,7 @@ def check_param_types(param, types, map_func, init, objs, keys):
         if not (eq(val, y) and type(val) in types):
             raise Exception("Setting parameter %s with value %r should have resulted in %r (types: %r), "
                 "but resulted in %r (type: %r) instead." % (param, x, y, types, val, type(val)))
-        
+
     # test invalid input types
     for k,v in objs.items():
         if k in keys:
@@ -121,12 +129,22 @@ def check_param_types(param, types, map_func, init, objs, keys):
         except (TypeError, ValueError, OverflowError):
             continue
         except Exception as exc:
-            raise Exception("Setting %s parameter value to %r raised %r." % (param, v, exc))
-        
+            raise Exception(
+                "Setting %s parameter value to %r raised %r." % (param, v, exc)
+            ) from exc
+
         raise Exception("Setting %s parameter value to %r should have raised an exception." % (param, v))
         
-        
-def test_limits_enforcement():
+
+@pytest.mark.parametrize("k,v_in,v_out",[
+    ('float', -1, 0),
+    ('float',  2, 1),
+    ('int',   -1, 0),
+    ('int',    2, 1),
+    ('list', 'w', 'x'),
+    ('dict', 'w', 1)
+])
+def test_limits_enforcement(k, v_in, v_out):
     p = pt.Parameter.create(name='params', type='group', children=[
         dict(name='float', type='float', limits=[0, 1]),
         dict(name='int', type='int', bounds=[0, 1]),
@@ -135,14 +153,8 @@ def test_limits_enforcement():
     ])
     t = pt.ParameterTree()
     t.setParameters(p)
-    for k, vin, vout in [('float', -1, 0),
-                         ('float',  2, 1),
-                         ('int',   -1, 0),
-                         ('int',    2, 1),
-                         ('list',   'w', 'x'),
-                         ('dict',   'w', 1)]:
-        p[k] = vin
-        assert p[k] == vout
+    p[k] = v_in
+    assert p[k] == v_out
 
 
 def test_data_race():
@@ -164,3 +176,63 @@ def test_data_race():
     p.sigValueChanged.connect(override)
     pi.widget.setValue(2)
     assert p.value() == pi.widget.value() == 1
+
+
+def test_checklist_show_hide():
+    p = pt.Parameter.create(name='checklist', type='checklist', limits=["a", "b", "c"])
+    pi = ChecklistParameterItem(p, 0)
+    pi.setHidden = MagicMock()
+    p.hide()
+    pi.setHidden.assert_called_with(True)
+    assert not p.opts["visible"]
+    p.show()
+    pi.setHidden.assert_called_with(False)
+    assert p.opts["visible"]
+
+@pytest.mark.parametrize("limits,value",[
+    ([1, 2, 3], [1, 2, 3]),
+    ([1, 2, 3],  []),
+    (['a', 'b', 'c'], ['a', 'b', 'c']),
+    (['a', 'b', 'c'], []),
+])
+def test_checklist_check_and_clear_all(limits, value):
+    p = pt.Parameter.create(name='checklist', type='checklist', limits=limits, value=value)
+    pi = ChecklistParameterItem(p, 0)
+
+    clearButton = pi.metaBtns['Clear']
+    selectButton = pi.metaBtns['Select']
+    
+    # ensure only the specified ones are selected by default
+    assert pi.param.value() == value
+
+    # make all are selected after selecting all
+    selectButton.clicked.emit()
+    assert pi.param.value() == limits
+
+    # make sure they all get cleared when hitting clear all
+    clearButton.clicked.emit()
+    assert pi.param.value() == []
+
+    # make sure all are selected again
+    selectButton.clicked.emit()
+    assert pi.param.value() == limits
+
+
+def test_pen_settings():
+    # Option from constructor
+    p = pt.Parameter.create(name='test', type='pen', width=5, additionalname='test')
+    assert p.pen.width() == 5
+    # Opts from dynamic update
+    p.setOpts(width=3)
+    assert p.pen.width() == 3
+    # Opts from changing child
+    p["width"] = 10
+    assert p.pen.width() == 10
+
+
+def test_recreate_from_savestate():
+    from pyqtgraph.examples import _buildParamTypes
+    created = _buildParamTypes.makeAllParamTypes()
+    state = created.saveState()
+    created2 = pt.Parameter.create(**state)
+    assert pg.eq(state, created2.saveState())

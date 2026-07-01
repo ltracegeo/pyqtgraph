@@ -19,11 +19,11 @@ def test_useCupy_can_be_set_after_init():
     prev_setting = pg.getConfigOption("useCupy")
     try:
         pg.setConfigOption("useCupy", False)
-        w = pg.GraphicsLayoutWidget()
-        w.show()
+        w = pg.GraphicsView()
         view = pg.ViewBox()
         w.setCentralWidget(view)
         w.resize(200, 200)
+        w.show()
         img = cupy.random.randint(0, 255, size=(32, 32)).astype(cupy.uint8)
         ii = pg.ImageItem()
         view.addItem(ii)
@@ -63,11 +63,11 @@ def test_ensuring_substrate():
 
 
 def test_ImageItem(transpose=False):
-    w = pg.GraphicsLayoutWidget()
-    w.show()
+    w = pg.GraphicsView()
     view = pg.ViewBox()
     w.setCentralWidget(view)
     w.resize(200, 200)
+    w.show()
     img = TransposedImageItem(border=0.5, transpose=transpose)
 
     view.addItem(img)
@@ -86,12 +86,12 @@ def test_ImageItem(transpose=False):
     app.processEvents()
     assertImageApproved(w, 'imageitem/init', 'Init image item. View is auto-scaled, image axis 0 marked by 1 line, axis 1 is marked by 2 lines. Origin in bottom-left.')
     
-    # ..with colormap
+    # ... with colormap
     cmap = pg.ColorMap([0, 0.25, 0.75, 1], [[0, 0, 0, 255], [255, 0, 0, 255], [255, 255, 0, 255], [255, 255, 255, 255]])
     img.setLookupTable(cmap.getLookupTable())
     assertImageApproved(w, 'imageitem/lut', 'Set image LUT.')
     
-    # ..and different levels
+    # ... and different levels
     img.setLevels([dmax+9, dmax+13])
     assertImageApproved(w, 'imageitem/levels1', 'Levels show only axis lines.')
 
@@ -167,7 +167,7 @@ def test_ImageItem(transpose=False):
     assertImageApproved(w, 'imageitem/resolution_without_downsampling', 'Resolution test without downsampling.')
     
     img.setAutoDownsample(True)
-    assertImageApproved(w, 'imageitem/resolution_with_downsampling_x', 'Resolution test with downsampling axross x axis.')
+    assertImageApproved(w, 'imageitem/resolution_with_downsampling_x', 'Resolution test with downsampling across x axis.')
     assert img._lastDownsample == (4, 1)
     
     img.setImage(data.T, levels=[-1, 1])
@@ -230,11 +230,18 @@ def test_setRect():
 
 
 def test_dividebyzero():
-    im = pg.image(np.random.normal(size=(100,100)))
-    im.imageItem.setAutoDownsample(True)
-    im.view.setRange(xRange=[-5+25, 5e+25],yRange=[-5e+25, 5e+25])
-    app.processEvents()
-    QtTest.QTest.qWait(1000)
-    # must manually call im.imageItem.render here or the exception
+    # test that the calculation of downsample factors
+    # does not result in a division by zero
+    plt = pg.PlotWidget()
+    plt.show()
+    plt.setAspectLocked(True)
+    imgitem = pg.ImageItem(np.random.normal(size=(100,100)))
+    imgitem.setAutoDownsample(True)
+    plt.addItem(imgitem)
+
+    plt.setRange(xRange=[-5e+25, 5e+25],yRange=[-5e+25, 5e+25])
+    QtTest.QTest.qWaitForWindowExposed(plt)
+    QtTest.QTest.qWait(100)
+    # must manually call imgitem.render here or the exception
     # will only exist on the Qt event loop
-    im.imageItem.render()
+    imgitem.render()
